@@ -52,6 +52,13 @@ def create_app(config_class=Config):
     def health_check():
         return jsonify({"status": "online", "message": "Smart School ERP Engine is running."}), 200
 
-    # We will import and register the Controllers (Blueprints) here later
+    # Register Blueprints (Controllers)
+    from app.controllers.auth_controller import auth_bp
+    from app.controllers.transaction_controller import transaction_bp
+    
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(transaction_bp)
+
+    return app
 
     return app
