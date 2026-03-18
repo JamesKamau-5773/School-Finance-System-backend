@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify
 from app.services.transaction_service import TransactionService
+from flask_jwt_extended import jwt_required
 
 # Create the Blueprint (Groups all /api/transactions routes together)
 transaction_bp = Blueprint('transaction_bp', __name__, url_prefix='/api/transactions')
