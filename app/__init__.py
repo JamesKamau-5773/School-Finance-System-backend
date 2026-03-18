@@ -55,9 +55,14 @@ def create_app(config_class=Config):
     # Register Blueprints (Controllers)
     from app.controllers.auth_controller import auth_bp
     from app.controllers.transaction_controller import transaction_bp
+    from app.controllers.finance_controller import finance_bp
+    from app.controllers.report_controller import report_bp
+    
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(transaction_bp)
+    app.register_blueprint(finance_bp)
+    app.register_blueprint(report_bp)
 
     return app
 
