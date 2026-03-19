@@ -1,6 +1,7 @@
 from app.repositories.transaction_repository import TransactionRepository
 from app.repositories.student_repository import StudentRepository
 from app.models.finance import VoteHead
+from app.services.sms_service import SMSService
 from app import db
 
 
@@ -43,6 +44,16 @@ class FinanceService:
             StudentRepository.update_balance(student_id, -amount)
 
             db.session.commit()
+
+            if student.parent_phone:
+                SMSService.send_receipt(
+                    phone_number=student.parent_phone,
+                    student_name=student.full_name,
+                    amount=amount,
+                    balance=student.balance,
+                    reference=reference_no
+                )
+
             return {
                 "message": "Payment successfully processed and split",
                 "total_recorded": amount,
