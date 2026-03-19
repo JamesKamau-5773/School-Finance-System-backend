@@ -14,6 +14,7 @@ from config import Config
 class TestConfig(Config):
     """Test environment configuration."""
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    SQLALCHEMY_ENGINE_OPTIONS = {}  # No SSL for SQLite
     TESTING = True
     JWT_SECRET_KEY = 'test-secret-key'
     PROPAGATE_EXCEPTIONS = True

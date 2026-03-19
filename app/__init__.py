@@ -26,46 +26,84 @@ def create_app(config_class=Config):
     cache.init_app(app)
     limiter.init_app(app)
 
-    # Restrict CORS to only allow requests from your future React frontend
-    cors.init_app(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
-                  
+    # 3. CORS Configuration (SRP: Allow only specified frontend)
+    cors.init_app(app, resources={
+        r"/api/*": {
+            "origins": app.config.get('CORS_ORIGINS', ['http://localhost:5173']),
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "max_age": 3600
+        }
+    })
 
-    # 3. Setup Developer Logging
+    # 4. Security Headers Middleware (SRP: Add security headers to all responses)
+    from app.security import add_security_headers
+    
+    @app.after_request
+    def apply_security_headers(response):
+        return add_security_headers(response)
+    
+    # 5. HTTPS Enforcement (SRP: Redirect HTTP to HTTPS in production)
+    if not app.debug:
+        @app.before_request
+        def enforce_https():
+            from flask import request, redirect
+            if request.endpoint and request.endpoint != 'health_check':
+                if not request.is_secure and not app.config.get('TESTING'):
+                    url = request.url.replace('http://', 'https://', 1)
+                    return redirect(url, code=301)
+
+    # 6. Setup Developer Logging (SRP: Logging utility)
     from app.utils.logger import setup_logger
     setup_logger(app)
 
-    # 4. Global Error Catching (Protects the client UI from seeing raw code)
+    # 7. Global Error Handler (SRP: Exception handling - no stack traces to client)
     @app.errorhandler(Exception)
     def handle_exception(e):
-        # This writes the exact line number of the crash to logs/school_erp.log
-        app.logger.exception(f"System Crash: {str(e)}")
-
-        # This sends a clean, polite JSON response to the React frontend
+        app.logger.exception(f"Unhandled exception: {str(e)}")
+        
+        # Don't expose stack traces in production
+        if app.debug:
+            raise e
+        
         return jsonify({
             "status": "error",
             "code": "SYS-500",
-            "message": "An internal system error occurred. Please quote code SYS-500 to support."
+            "message": "An internal error occurred. Please contact support."
         }), 500
+    
+    @app.errorhandler(404)
+    def handle_404(e):
+        return jsonify({
+            "status": "error",
+            "code": "NOT-FOUND",
+            "message": "Endpoint not found"
+        }), 404
+    
+    @app.errorhandler(405)
+    def handle_405(e):
+        return jsonify({
+            "status": "error",
+            "code": "METHOD-NOT-ALLOWED",
+            "message": "HTTP method not allowed"
+        }), 405
 
-    # 5. Health Check Route (To prove the server is alive)
+    # 8. Health Check Route (SRP: Simple liveness probe)
     @app.route('/api/health', methods=['GET'])
     def health_check():
-        return jsonify({"status": "online", "message": "Smart School ERP Engine is running."}), 200
+        return jsonify({"status": "ok", "message": "Smart School ERP is running"}), 200
 
-    # Register Blueprints (Controllers)
+    # 9. Register API Blueprints (SRP: Route organization)
     from app.controllers.auth_controller import auth_bp
     from app.controllers.transaction_controller import transaction_bp
     from app.controllers.finance_controller import finance_bp
     from app.controllers.report_controller import report_bp
     from app.controllers.inventory_controller import inventory_bp
     
-    
     app.register_blueprint(auth_bp)
     app.register_blueprint(transaction_bp)
     app.register_blueprint(finance_bp)
     app.register_blueprint(report_bp)
     app.register_blueprint(inventory_bp)
-
-    return app
 
     return app
