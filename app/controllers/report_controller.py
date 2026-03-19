@@ -11,3 +11,11 @@ def get_vote_head_summary():
   #Route the request and return JSON
   result,status_code = ReportService.generate_vote_head_summary()
   return jsonify(result), status_code
+
+@report_bp.route('/trial-balance', methods=['GET'])
+@jwt_required()
+def get_trial_balance():
+    
+    # Controller acts as the traffic cop, delegating to the service
+    result, status_code = ReportService.generate_trial_balance()
+    return jsonify(result), status_code
