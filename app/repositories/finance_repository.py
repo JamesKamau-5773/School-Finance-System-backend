@@ -164,11 +164,29 @@ class FinanceRepository:
     @staticmethod
     def get_all_vote_heads():
         """
-        Fetches all vote heads with their current balances.
+        Fetches all vote heads with their current balances calculated from ledger entries.
         Deduplicates by name to return only one entry per unique vote head.
+        
+        Balance calculation: Sum of CREDIT entries minus sum of DEBIT entries for each vote head.
+        CREDIT = money received, DEBIT = money allocated/spent
         """
         try:
             vote_heads = VoteHead.query.all()
+            
+            # Calculate balances from ledger entries for each vote head
+            ledger_balances = {}
+            ledger_entries = LedgerEntry.query.all()
+            
+            for entry in ledger_entries:
+                vh_id = entry.vote_head_id
+                if vh_id not in ledger_balances:
+                    ledger_balances[vh_id] = {'credits': 0.0, 'debits': 0.0}
+                
+                amount = float(entry.amount) if entry.amount else 0.0
+                if entry.entry_type == 'CREDIT':
+                    ledger_balances[vh_id]['credits'] += amount
+                elif entry.entry_type == 'DEBIT':
+                    ledger_balances[vh_id]['debits'] += amount
             
             # Deduplicate by name, keeping the first entry for each unique name
             seen_names = set()
@@ -176,18 +194,22 @@ class FinanceRepository:
             for vh in vote_heads:
                 if vh.name not in seen_names:
                     seen_names.add(vh.name)
+                    
+                    # Calculate net balance (credits - debits)
+                    balance_data = ledger_balances.get(vh.id, {'credits': 0.0, 'debits': 0.0})
+                    net_balance = balance_data['credits'] - balance_data['debits']
+                    
                     result.append({
                         "id": str(vh.id),
                         "code": vh.code,
                         "name": vh.name,
                         "fund_type": vh.fund_type,
                         "annual_budget": float(vh.annual_budget),
-                        "current_balance": float(vh.current_balance)
+                        "current_balance": net_balance
                     })
             return result
         except Exception as e:
             raise e
-
     @staticmethod
     def get_trial_balance():
         """
