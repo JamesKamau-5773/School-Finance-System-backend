@@ -53,10 +53,11 @@ def reset_db(app):
 def admin_user(app):
     """Create an admin user for testing."""
     with app.app_context():
-        admin_role = Role.query.filter_by(role_name='admin').first()
+        admin_role = Role.query.filter_by(name='admin').first()
         if not admin_role:
-            admin_role = Role(role_name='admin', permissions='read,write,delete')
+            admin_role = Role(name='admin', permissions='read,write,delete')
             db.session.add(admin_role)
+            db.session.commit()
         
         user = User(
             id=uuid.uuid4(),
@@ -75,9 +76,9 @@ def admin_user(app):
 def regular_user(app):
     """Create a regular user for testing."""
     with app.app_context():
-        user_role = Role.query.filter_by(role_name='user').first()
+        user_role = Role.query.filter_by(name='user').first()
         if not user_role:
-            user_role = Role(role_name='user', permissions='read')
+            user_role = Role(name='user', permissions='read')
             db.session.add(user_role)
         
         user = User(
