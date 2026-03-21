@@ -37,11 +37,19 @@ class Config:
     CACHE_TYPE = 'SimpleCache' 
     CACHE_DEFAULT_TIMEOUT = 300
     
-    # 5. Request Security
+    # 5. CORS Configuration (Environment-aware origins & credentials)
+    # For development: http://localhost:5173 (Vite default)
+    # For production: use CORS_ORIGINS env var (comma-separated)
+    _cors_origins_str = os.environ.get('CORS_ORIGINS', 'http://localhost:5173')
+    CORS_ORIGINS = [origin.strip() for origin in _cors_origins_str.split(',')]
+    CORS_ALLOW_CREDENTIALS = os.environ.get('CORS_ALLOW_CREDENTIALS', 'True').lower() == 'true'
+    CORS_MAX_AGE = int(os.environ.get('CORS_MAX_AGE', '3600'))  # 1 hour
+    
+    # 6. Request Security
     MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5MB max request size
     JSON_SORT_KEYS = False
     
-    # 6. Database Security (SRP: Connection-specific)
+    # 7. Database Security (SRP: Connection-specific)
     # Only require SSL for PostgreSQL (not for SQLite in tests)
     SQLALCHEMY_ENGINE_OPTIONS = {}
     if SQLALCHEMY_DATABASE_URI.startswith('postgresql'):
@@ -49,8 +57,9 @@ class Config:
             'connect_args': {'sslmode': 'require'}  # Force SSL for PostgreSQL
         }
     
-    # 7. Production Security Flags
+    # 8. Production Security Flags
     PROPAGATE_EXCEPTIONS = False  # Don't expose exceptions to client
     TRAP_HTTP_EXCEPTIONS = True
     TRAP_BAD_REQUEST_ERRORS = True
     PREFERRED_URL_SCHEME = 'https'  # Force HTTPS URLs
+    ENFORCE_HTTPS = os.environ.get('ENFORCE_HTTPS', 'False').lower() == 'true'

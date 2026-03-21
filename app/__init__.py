@@ -1,5 +1,6 @@
 from flask import Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from flask_caching import Cache
@@ -10,6 +11,7 @@ from config import Config
 
 # 1. Initialize Extensions (Unbound)
 db = SQLAlchemy()
+migrate = Migrate()
 jwt = JWTManager()
 cors = CORS()
 cache = Cache()
@@ -22,17 +24,20 @@ def create_app(config_class=Config):
 
     # 2. Bind Extensions to the App instance
     db.init_app(app)
+    migrate.init_app(app, db)
     jwt.init_app(app)
     cache.init_app(app)
     limiter.init_app(app)
 
-    # 3. CORS Configuration (SRP: Allow only specified frontend)
+    # 3. CORS Configuration (SRP: Environment-aware frontend origins with credentials)
     cors.init_app(app, resources={
         r"/api/*": {
             "origins": app.config.get('CORS_ORIGINS', ['http://localhost:5173']),
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
-            "max_age": 3600
+            "expose_headers": ["Content-Type", "X-Total-Count"],
+            "supports_credentials": app.config.get('CORS_ALLOW_CREDENTIALS', True),
+            "max_age": app.config.get('CORS_MAX_AGE', 3600)
         }
     })
 
@@ -43,11 +48,13 @@ def create_app(config_class=Config):
     def apply_security_headers(response):
         return add_security_headers(response)
     
-    # 5. HTTPS Enforcement (SRP: Redirect HTTP to HTTPS in production)
-    if not app.debug:
+    # 5. HTTPS Enforcement (SRP: Redirect HTTP to HTTPS only when explicitly enabled)
+    if app.config.get('ENFORCE_HTTPS', False):
         @app.before_request
         def enforce_https():
             from flask import request, redirect
+            if request.method == 'OPTIONS':
+                return None
             if request.endpoint and request.endpoint != 'health_check':
                 if not request.is_secure and not app.config.get('TESTING'):
                     url = request.url.replace('http://', 'https://', 1)
@@ -100,10 +107,12 @@ def create_app(config_class=Config):
     from app.controllers.report_controller import report_bp
     from app.controllers.inventory_controller import inventory_bp
     
+    
     app.register_blueprint(auth_bp)
     app.register_blueprint(transaction_bp)
     app.register_blueprint(finance_bp)
     app.register_blueprint(report_bp)
     app.register_blueprint(inventory_bp)
+    
 
     return app

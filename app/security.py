@@ -5,7 +5,7 @@ Implements RBAC, rate limiting, password validation, input sanitization.
 import functools
 import re
 from datetime import datetime, timedelta
-from flask import jsonify, request
+from flask import jsonify, request, current_app
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
 
 
@@ -280,8 +280,9 @@ def add_security_headers(response):
         "frame-ancestors 'none';"
     )
     
-    # HTTPS enforcement
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    # Apply HSTS only for real HTTPS responses when HTTPS is explicitly enforced.
+    if current_app.config.get('ENFORCE_HTTPS', False) and request.is_secure:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     
     # Referrer policy
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
