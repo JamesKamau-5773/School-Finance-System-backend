@@ -37,6 +37,11 @@ class FinanceService:
         return [transaction.to_dict() for transaction in transactions]
 
     @staticmethod
+    def get_all_vote_heads():
+        """Fetch all vote heads with their current balances."""
+        return FinanceRepository.get_all_vote_heads()
+
+    @staticmethod
     def process_fee_payment(student_id, amount, payment_method, reference_no, user_id, vote_head_id):
         """Record a fee payment (income transaction).
         

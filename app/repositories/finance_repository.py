@@ -7,6 +7,22 @@ from datetime import datetime, timezone
 
 class FinanceRepository:
     @staticmethod
+    def _build_vote_head_code(identifier):
+        base = ''.join(char if char.isalnum() else '_' for char in str(identifier).upper())
+        base = base.strip('_') or 'VH_AUTO'
+        code = base[:20]
+
+        if not VoteHead.query.filter_by(code=code).first():
+            return code
+
+        suffix = 1
+        while True:
+            candidate = f"{base[:16]}{suffix:04d}"[:20]
+            if not VoteHead.query.filter_by(code=candidate).first():
+                return candidate
+            suffix += 1
+
+    @staticmethod
     def _resolve_vote_head(identifier):
         if identifier is None:
             return None
@@ -21,10 +37,34 @@ class FinanceRepository:
         )
 
     @staticmethod
+    def _get_or_create_vote_head(identifier, fund_type='CAPITATION'):
+        if identifier is None:
+            return None
+
+        vote_head = FinanceRepository._resolve_vote_head(identifier)
+        if vote_head:
+            return vote_head
+
+        identifier_str = str(identifier)
+        if is_valid_uuid(identifier_str):
+            return None
+
+        vote_head = VoteHead(
+            code=FinanceRepository._build_vote_head_code(identifier_str),
+            name=identifier_str.replace('_', ' '),
+            fund_type=fund_type,
+            annual_budget=0,
+            current_balance=0
+        )
+        db.session.add(vote_head)
+        db.session.flush()
+        return vote_head
+
+    @staticmethod
     def create_transaction_with_ledger(transaction_data, ledger_lines):
         try:
-            source_vote_head = FinanceRepository._resolve_vote_head(transaction_data.get('source_vote_head'))
-            destination_vote_head = FinanceRepository._resolve_vote_head(transaction_data.get('destination_vote_head'))
+            source_vote_head = FinanceRepository._get_or_create_vote_head(transaction_data.get('source_vote_head'))
+            destination_vote_head = FinanceRepository._get_or_create_vote_head(transaction_data.get('destination_vote_head'))
 
             if not source_vote_head:
                 raise ValueError('source_vote_head is invalid or not found')
@@ -47,7 +87,7 @@ class FinanceRepository:
             for line in ledger_lines:
                 account_name = str(line.get('account_name', ''))
                 vote_head_identifier = account_name.replace('Income_VoteHead_', '', 1)
-                vote_head = FinanceRepository._resolve_vote_head(vote_head_identifier)
+                vote_head = FinanceRepository._get_or_create_vote_head(vote_head_identifier)
 
                 if not vote_head:
                     raise ValueError(f'Unable to resolve vote head for ledger line: {account_name}')
@@ -96,5 +136,26 @@ class FinanceRepository:
                 "total_expenses": float(total_expense),
                 "net_position": float(total_income - total_expense)
             }
+        except Exception as e:
+            raise e
+
+    @staticmethod
+    def get_all_vote_heads():
+        """
+        Fetches all vote heads with their current balances.
+        """
+        try:
+            vote_heads = VoteHead.query.all()
+            return [
+                {
+                    "id": str(vh.id),
+                    "code": vh.code,
+                    "name": vh.name,
+                    "fund_type": vh.fund_type,
+                    "annual_budget": float(vh.annual_budget),
+                    "current_balance": float(vh.current_balance)
+                }
+                for vh in vote_heads
+            ]
         except Exception as e:
             raise e

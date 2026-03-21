@@ -85,6 +85,15 @@ def get_dashboard_summary():
         return jsonify({"status": "error", "message": str(e)}), 400
 
 
+@finance_bp.route('/vote-heads', methods=['GET'])
+def get_vote_heads():
+    try:
+        vote_heads = FinanceService.get_all_vote_heads()
+        return jsonify(vote_heads), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
 @finance_bp.route('/reallocate', methods=['POST'])
 def reallocate_funds():
     """Catches the payload for internal Vote Head adjustments."""
@@ -109,7 +118,7 @@ def reallocate_funds():
 @finance_bp.route('/capitation', methods=['POST'])
 def receive_capitation():
     """Catches the payload for massive MoE block grants."""
-    data = request.get_json()
+    data = request.get_json() or {}
     try:
         # Pass the React payload to the Capitation Splitter
         receipt = FinanceService.process_capitation_disbursement(
