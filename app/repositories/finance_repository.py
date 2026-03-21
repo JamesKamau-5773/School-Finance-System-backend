@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 class FinanceRepository:
     @staticmethod
     def _build_vote_head_code(identifier):
-        base = ''.join(char if char.isalnum() else '_' for char in str(identifier).upper())
+        base = ''.join(char if char.isalnum()
+                       else '_' for char in str(identifier).upper())
         base = base.strip('_') or 'VH_AUTO'
         code = base[:20]
 
@@ -63,19 +64,23 @@ class FinanceRepository:
     @staticmethod
     def create_transaction_with_ledger(transaction_data, ledger_lines):
         try:
-            source_vote_head = FinanceRepository._get_or_create_vote_head(transaction_data.get('source_vote_head'))
-            destination_vote_head = FinanceRepository._get_or_create_vote_head(transaction_data.get('destination_vote_head'))
+            source_vote_head = FinanceRepository._get_or_create_vote_head(
+                transaction_data.get('source_vote_head'))
+            destination_vote_head = FinanceRepository._get_or_create_vote_head(
+                transaction_data.get('destination_vote_head'))
 
             if not source_vote_head:
                 raise ValueError('source_vote_head is invalid or not found')
             if not destination_vote_head:
-                raise ValueError('destination_vote_head is invalid or not found')
+                raise ValueError(
+                    'destination_vote_head is invalid or not found')
 
             transaction = Transaction(
                 vote_head_id=destination_vote_head.id,
                 recorded_by=transaction_data.get('recorded_by'),
                 student_id=transaction_data.get('student_id'),
-                transaction_type=transaction_data.get('transaction_type', 'ADJUSTMENT'),
+                transaction_type=transaction_data.get(
+                    'transaction_type', 'ADJUSTMENT'),
                 amount=transaction_data.get('amount'),
                 reference_number=transaction_data.get('reference_no'),
                 description=transaction_data.get('description'),
@@ -86,11 +91,14 @@ class FinanceRepository:
 
             for line in ledger_lines:
                 account_name = str(line.get('account_name', ''))
-                vote_head_identifier = account_name.replace('Income_VoteHead_', '', 1)
-                vote_head = FinanceRepository._get_or_create_vote_head(vote_head_identifier)
+                vote_head_identifier = account_name.replace(
+                    'Income_VoteHead_', '', 1)
+                vote_head = FinanceRepository._get_or_create_vote_head(
+                    vote_head_identifier)
 
                 if not vote_head:
-                    raise ValueError(f'Unable to resolve vote head for ledger line: {account_name}')
+                    raise ValueError(
+                        f'Unable to resolve vote head for ledger line: {account_name}')
 
                 ledger_entry = LedgerEntry(
                     transaction_id=transaction.id,
@@ -143,19 +151,84 @@ class FinanceRepository:
     def get_all_vote_heads():
         """
         Fetches all vote heads with their current balances.
+        Deduplicates by name to return only one entry per unique vote head.
         """
         try:
             vote_heads = VoteHead.query.all()
-            return [
-                {
-                    "id": str(vh.id),
-                    "code": vh.code,
-                    "name": vh.name,
-                    "fund_type": vh.fund_type,
-                    "annual_budget": float(vh.annual_budget),
-                    "current_balance": float(vh.current_balance)
+            
+            # Deduplicate by name, keeping the first entry for each unique name
+            seen_names = set()
+            result = []
+            for vh in vote_heads:
+                if vh.name not in seen_names:
+                    seen_names.add(vh.name)
+                    result.append({
+                        "id": str(vh.id),
+                        "code": vh.code,
+                        "name": vh.name,
+                        "fund_type": vh.fund_type,
+                        "annual_budget": float(vh.annual_budget),
+                        "current_balance": float(vh.current_balance)
+                    })
+            return result
+        except Exception as e:
+            raise e
+
+    @staticmethod
+    def get_trial_balance():
+        """
+        Generates a formal Trial Balance by calculating the net balance of every account.
+        Total Debits MUST equal Total Credits.
+        """
+        try:
+            # 1. Sum all debits and credits grouped by account name
+            results = db.session.query(
+                LedgerEntry.account_name,
+                LedgerEntry.entry_type,
+                func.sum(LedgerEntry.amount)
+            ).group_by(LedgerEntry.account_name, LedgerEntry.entry_type).all()
+
+            # 2. Process into a working dictionary
+            accounts = {}
+            for account, entry_type, total in results:
+                if account not in accounts:
+                    accounts[account] = {'debit': 0.0, 'credit': 0.0}
+
+                if entry_type == 'DEBIT':
+                    accounts[account]['debit'] += float(total)
+                elif entry_type == 'CREDIT':
+                    accounts[account]['credit'] += float(total)
+
+            # 3. Calculate the NET balance for each account (standard accounting practice)
+            tb_lines = []
+            for acc, data in accounts.items():
+                net = data['debit'] - data['credit']
+                # If net is positive, it has a Debit balance. If negative, a Credit balance.
+                if net > 0:
+                    tb_lines.append(
+                        {'account': acc, 'debit': net, 'credit': 0.0})
+                elif net < 0:
+                    tb_lines.append(
+                        {'account': acc, 'debit': 0.0, 'credit': abs(net)})
+                else:
+                    # Account is zeroed out, skip or show zero
+                    pass
+
+            # 4. Calculate Grand Totals
+            net_total_debit = sum(line['debit'] for line in tb_lines)
+            net_total_credit = sum(line['credit'] for line in tb_lines)
+
+            # Sort alphabetically by account name for a clean report
+            tb_lines.sort(key=lambda x: x['account'])
+
+            return {
+                "lines": tb_lines,
+                "totals": {
+                    "debit": net_total_debit,
+                    "credit": net_total_credit,
+                    # Precision rounding to handle floating point math anomalies
+                    "is_balanced": round(net_total_debit, 2) == round(net_total_credit, 2)
                 }
-                for vh in vote_heads
-            ]
+            }
         except Exception as e:
             raise e

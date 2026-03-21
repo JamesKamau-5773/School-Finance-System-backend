@@ -133,3 +133,12 @@ def receive_capitation():
         }), 201
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
+
+@finance_bp.route('/reports/trial-balance', methods=['GET'])
+def get_trial_balance_report():
+    """Fetches the Trial Balance for MoE compliance reporting."""
+    try:
+        tb_data = FinanceRepository.get_trial_balance()
+        return jsonify(tb_data), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400    
