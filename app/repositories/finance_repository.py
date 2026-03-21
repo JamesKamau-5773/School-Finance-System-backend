@@ -32,10 +32,24 @@ class FinanceRepository:
         if is_valid_uuid(identifier_str):
             return VoteHead.query.filter_by(id=identifier_str).first()
 
-        return (
-            VoteHead.query.filter_by(code=identifier_str).first()
-            or VoteHead.query.filter_by(name=identifier_str).first()
-        )
+        # Try exact code match first
+        by_code = VoteHead.query.filter_by(code=identifier_str).first()
+        if by_code:
+            return by_code
+        
+        # Try exact name match
+        by_name = VoteHead.query.filter_by(name=identifier_str).first()
+        if by_name:
+            return by_name
+        
+        # Try with underscores converted to spaces
+        normalized_name = identifier_str.replace('_', ' ')
+        if normalized_name != identifier_str:
+            by_normalized = VoteHead.query.filter_by(name=normalized_name).first()
+            if by_normalized:
+                return by_normalized
+        
+        return None
 
     @staticmethod
     def _get_or_create_vote_head(identifier, fund_type='CAPITATION'):

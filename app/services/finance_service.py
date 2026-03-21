@@ -221,7 +221,7 @@ class FinanceService:
             'reference_no': reference_no,
             'student_id': None,
             'recorded_by': SystemRepository.get_or_create_system_user(),
-            'source_vote_head': 'Cash_In_Bank_Capitation',
+            'source_vote_head': 'Cash In Bank Capitation',
             'destination_vote_head': 'Tuition',
             'amount': amount_dec,
             'transaction_type': 'INCOME',
@@ -231,7 +231,7 @@ class FinanceService:
 
         ledger_lines = [
             {
-                'account_name': 'Cash_In_Bank_Capitation',
+                'account_name': 'Cash In Bank Capitation',
                 'amount': amount_dec,
                 'entry_type': 'DEBIT'
             }
