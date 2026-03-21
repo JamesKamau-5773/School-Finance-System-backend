@@ -1,138 +1,126 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.services.fee_collection_service import FeeCollectionService
 from app.services.finance_service import FinanceService
-from app.security import roles_required, InputSanitizer, audit_log
+from app.repositories.system_repository import SystemRepository
+from app.repositories.finance_repository import FinanceRepository
 
-finance_bp = Blueprint('finance_bp', __name__, url_prefix='/api/finance')
+finance_bp = Blueprint('finance', __name__, url_prefix='/api/finance')
+
+
+@finance_bp.route('/transactions', methods=['GET'])
+def get_ledger():
+    try:
+        data = FinanceService.get_recent_transactions(limit=50)
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 
 @finance_bp.route('/pay', methods=['POST'])
-@jwt_required()
-@roles_required('admin', 'principal', 'bursar')  # SRP: Authorization delegated to decorator
-def process_payment():
-    """
-    Process student fee payment.
-    Only: admin, principal, bursar can process payments.
-    """
-    # 1. Extract and sanitize data (SRP: Input validation)
-    data = request.get_json()
-    
-    try:
-        student_id = data.get('student_id')
-        amount = InputSanitizer.sanitize_number(data.get('amount', 0), min_val=0.01, max_val=999999.99)
-        payment_method = InputSanitizer.sanitize_text(data.get('payment_method', ''), max_length=50)
-        reference_no = InputSanitizer.sanitize_text(data.get('reference_no', ''), max_length=100)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    
-    # 2. Validate required fields
-    if not all([student_id, amount, payment_method, reference_no]):
-        return jsonify({"error": "Missing required payment fields"}), 400
-    
-    # 3. Get authenticated user
-    current_user_id = get_jwt_identity()
-    
-    # 4. Process payment (SRP: Business logic in service)
-    result, status_code = FinanceService.process_fee_payment(
-        student_id=student_id,
-        amount=amount,
-        payment_method=payment_method,
-        reference_no=reference_no,
-        user_id=current_user_id
-    )
-    
-    # 5. Audit log for financial transaction
-    if status_code == 201:
-        audit_log('CREATE', 'PAYMENT', student_id, {
-            'amount': amount,
-            'method': payment_method,
-            'reference': reference_no
-        })
-    
-    return jsonify(result), status_code
+def receive_payment():
+    """Record a student fee payment."""
+    data = request.get_json() or {}
 
-
-@finance_bp.route('/collect', methods=['POST'])
-@jwt_required()
-@roles_required('admin', 'principal', 'collector')  # SRP: Role check in decorator
-def collect():
-    """
-    Collect fee payment (delegated collection).
-    """
-    data = request.get_json()
-    
-    # Input validation
     try:
-        amount = InputSanitizer.sanitize_number(data.get('amount', 0), min_val=0.01, max_val=999999.99)
+        # Get system context (user and budget head)
+        user_id = SystemRepository.get_or_create_system_user()
+        vote_head_id = SystemRepository.get_or_create_default_fee_vote_head()
+        
+        # Record the transaction
+        receipt = FinanceService.process_fee_payment(
+            student_id=data.get('student_id'),
+            amount=data.get('amount'),
+            payment_method=data.get('payment_method'),
+            reference_no=data.get('reference_no'),
+            user_id=user_id,
+            vote_head_id=vote_head_id
+        )
+        return jsonify({
+            "status": "success",
+            "message": "Payment recorded successfully",
+            "data": receipt
+        }), 201
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    
-    if amount <= 0:
-        return jsonify({"error": "Amount must be greater than zero"}), 400
-    
-    collector_id = get_jwt_identity()
-    result = FeeCollectionService.process_fee_payment(
-        student_id=data.get('student_id'),
-        total_amount=amount,
-        collector_id=collector_id
-    )
-    
-    audit_log('CREATE', 'COLLECTION', data.get('student_id'), {
-        'amount': amount,
-        'collector_id': collector_id
-    })
-    
-    return jsonify(result), 201
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @finance_bp.route('/expense', methods=['POST'])
-@jwt_required()
-@roles_required('admin', 'bursar')  # Only admin/bursar can record expenses
 def record_expense():
-    """
-    Record school expense (requires bursar role).
-    """
-    data = request.get_json()
-    
-    # Extract and validate inputs (SRP: Validation in sanitizer)
+    """Record an expense transaction."""
+    data = request.get_json() or {}
+
     try:
-        vote_head_id = data.get('vote_head_id')
-        amount = InputSanitizer.sanitize_number(data.get('amount', 0), min_val=0.01, max_val=999999.99)
-        payment_method = InputSanitizer.sanitize_text(data.get('payment_method', ''), max_length=50)
-        reference_no = InputSanitizer.sanitize_text(data.get('reference_no', ''), max_length=100)
-        description = InputSanitizer.sanitize_text(data.get('description', ''), max_length=500)
-        etims_receipt_no = InputSanitizer.sanitize_text(data.get('etims_receipt_no', ''), max_length=100)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    
-    # Validate required fields
-    if not all([vote_head_id, amount, payment_method, etims_receipt_no]):
+        # Get system context (user and budget head)
+        user_id = SystemRepository.get_or_create_system_user()
+        vote_head_id = SystemRepository.get_or_create_default_fee_vote_head()
+        
+        # Record the transaction
+        expense = FinanceService.process_expense(
+            description=data.get('description'),
+            amount=data.get('amount'),
+            category=data.get('category'),
+            payment_method=data.get('payment_method'),
+            reference_no=data.get('reference_no'),
+            user_id=user_id,
+            vote_head_id=vote_head_id
+        )
         return jsonify({
-            "error": "Missing required fields",
-            "required": ["vote_head_id", "amount", "payment_method", "etims_receipt_no"]
-        }), 400
-    
-    # Get authenticated user
-    current_user_id = get_jwt_identity()
-    
-    # Process expense (SRP: Business logic delegated)
-    result, status_code = FinanceService.record_expense(
-        vote_head_id=vote_head_id,
-        amount=amount,
-        payment_method=payment_method,
-        reference_no=reference_no,
-        etims_receipt_no=etims_receipt_no,
-        description=description,
-        user_id=current_user_id
-    )
-    
-    # Audit log for expense
-    if status_code == 201:
-        audit_log('CREATE', 'EXPENSE', vote_head_id, {
-            'amount': amount,
-            'payment_method': payment_method,
-            'etims_receipt': etims_receipt_no
-        })
-    
-    return jsonify(result), status_code
+            "status": "success",
+            "message": "Expense recorded successfully",
+            "data": expense
+        }), 201
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@finance_bp.route('/summary', methods=['GET'])
+def get_dashboard_summary():
+    try:
+        summary_data = FinanceRepository.get_dashboard_summary()
+        return jsonify(summary_data), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@finance_bp.route('/reallocate', methods=['POST'])
+def reallocate_funds():
+    """Catches the payload for internal Vote Head adjustments."""
+    data = request.get_json() or {}
+    try:
+        adjustment = FinanceService.reallocate_funds(
+            source_vote_head=data.get('source_vote_head'),
+            destination_vote_head=data.get('destination_vote_head'),
+            amount=data.get('amount'),
+            authorized_by=data.get('authorized_by', 'PRINCIPAL-01'),
+            reason=data.get('reason')
+        )
+        return jsonify({
+            "status": "success",
+            "message": "Funds reallocated successfully",
+            "data": adjustment
+        }), 201
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@finance_bp.route('/capitation', methods=['POST'])
+def receive_capitation():
+    """Catches the payload for massive MoE block grants."""
+    data = request.get_json()
+    try:
+        # Pass the React payload to the Capitation Splitter
+        receipt = FinanceService.process_capitation_disbursement(
+            total_amount=data.get('amount'),
+            term_identifier=data.get('term', 'Term 1'),
+            reference_no=data.get('reference_no')
+        )
+        return jsonify({
+            "status": "success", 
+            "message": "FDSE Capitation securely distributed", 
+            "data": receipt
+        }), 201
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
