@@ -327,3 +327,86 @@ class FinanceRepository:
 
         except Exception as e:
             raise e
+
+    @staticmethod
+    def get_filtered_transactions(filters):
+        """
+        Fetches the cashbook ledger applying both the Omni-Search and Advanced Filters.
+        
+        Supports:
+        - Broad omni-search across description, reference_no, and account_name
+        - Advanced filters: date, type (Income/Expense), category, method, minAmount
+        """
+        try:
+            # Base query joining the Transaction wrapper with the specific Ledger Entry
+            query = db.session.query(Transaction, LedgerEntry).join(
+                LedgerEntry, Transaction.id == LedgerEntry.transaction_id
+            )
+
+            # 1. The Omni-Search Engine (Broad Net)
+            search_term = filters.get('search')
+            if search_term:
+                search_pattern = f"%{search_term}%"
+                query = query.filter(
+                    or_(
+                        Transaction.description.ilike(search_pattern),
+                        Transaction.reference_number.ilike(search_pattern),
+                        LedgerEntry.reference_no.ilike(search_pattern)
+                    )
+                )
+
+            # 2. Advanced Filters (Strict Constraints)
+            
+            # Date Filter
+            date_filter = filters.get('date')
+            if date_filter:
+                # Assuming date_filter comes in as 'YYYY-MM-DD'
+                query = query.filter(func.date(Transaction.created_at) == date_filter)
+
+            # Transaction Type (Income = CREDIT, Expense = DEBIT in standard accounting)
+            tx_type = filters.get('type')
+            if tx_type == 'Income':
+                query = query.filter(LedgerEntry.entry_type == 'CREDIT')
+            elif tx_type == 'Expense':
+                query = query.filter(LedgerEntry.entry_type == 'DEBIT')
+
+            # Category / Ledger Name Filter
+            category = filters.get('category')
+            if category:
+                query = query.filter(LedgerEntry.reference_no.ilike(f"%{category}%"))
+
+            # Payment Method Filter
+            method = filters.get('method')
+            if method:
+                query = query.filter(Transaction.description.ilike(f"%{method}%"))
+
+            # Minimum Amount Filter
+            min_amount = filters.get('minAmount')
+            if min_amount:
+                try:
+                    query = query.filter(LedgerEntry.amount >= float(min_amount))
+                except ValueError:
+                    pass # Ignore if frontend sends invalid number string
+
+            # Order by most recent first and execute
+            query = query.order_by(Transaction.created_at.desc())
+            results = query.all()
+
+            # Format the output for the React frontend
+            output = []
+            for tx, ledger in results:
+                output.append({
+                    "id": ledger.id,
+                    "date": tx.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "reference_no": tx.reference_number,
+                    "description": tx.description,
+                    "account_name": ledger.reference_no,
+                    "type": "Income" if ledger.entry_type == 'CREDIT' else "Expense",
+                    "amount": float(ledger.amount)
+                })
+
+            return output
+
+        except Exception as e:
+            raise e
+

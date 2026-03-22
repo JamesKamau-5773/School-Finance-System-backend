@@ -10,11 +10,33 @@ finance_bp = Blueprint('finance', __name__, url_prefix='/api/finance')
 
 
 @finance_bp.route('/transactions', methods=['GET'])
-def get_ledger():
+def get_transactions():
+    """Endpoint to fetch filtered cashbook transactions with Omni-Search and Advanced Filters."""
     try:
-        data = FinanceService.get_recent_transactions(limit=50)
-        return jsonify(data), 200
+        # Extract all potential filters from the query string
+        filters = {
+            'search': request.args.get('search'),
+            'date': request.args.get('date'),
+            'type': request.args.get('type'),
+            'category': request.args.get('category'),
+            'method': request.args.get('method'),
+            'minAmount': request.args.get('minAmount')
+        }
+        
+        # Remove empty keys to clean up the dictionary
+        active_filters = {k: v for k, v in filters.items() if v}
+
+        transactions = FinanceRepository.get_filtered_transactions(active_filters)
+        
+        return jsonify({
+            "status": "success", 
+            "data": transactions,
+            "count": len(transactions)
+        }), 200
+        
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 400
 
 
