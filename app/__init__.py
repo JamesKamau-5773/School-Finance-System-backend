@@ -22,6 +22,19 @@ def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
 
+    cors_origins = app.config.get('CORS_ORIGINS', ['http://localhost:5173'])
+    cors_allow_credentials = app.config.get('CORS_ALLOW_CREDENTIALS', True)
+    cors_max_age = app.config.get('CORS_MAX_AGE', 3600)
+
+    cors_resource_policy = {
+        "origins": cors_origins,
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Type", "X-Total-Count"],
+        "supports_credentials": cors_allow_credentials,
+        "max_age": cors_max_age
+    }
+
     # 2. Bind Extensions to the App instance
     db.init_app(app)
     migrate.init_app(app, db)
@@ -31,14 +44,8 @@ def create_app(config_class=Config):
 
     # 3. CORS Configuration (SRP: Environment-aware frontend origins with credentials)
     cors.init_app(app, resources={
-        r"/api/*": {
-            "origins": app.config.get('CORS_ORIGINS', ['http://localhost:5173']),
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "expose_headers": ["Content-Type", "X-Total-Count"],
-            "supports_credentials": app.config.get('CORS_ALLOW_CREDENTIALS', True),
-            "max_age": app.config.get('CORS_MAX_AGE', 3600)
-        }
+        r"/api/*": cors_resource_policy,
+        r"/fees/*": cors_resource_policy
     })
 
     # 4. Security Headers Middleware (SRP: Add security headers to all responses)
@@ -106,6 +113,8 @@ def create_app(config_class=Config):
     from app.controllers.finance_controller import finance_bp
     from app.controllers.report_controller import report_bp
     from app.controllers.inventory_controller import inventory_bp
+    from app.controllers.fee_controller import fee_bp, create_fee_structure, get_fee_structures
+    from app.controllers.student_controller import student_bp
     
     
     app.register_blueprint(auth_bp)
@@ -113,6 +122,10 @@ def create_app(config_class=Config):
     app.register_blueprint(finance_bp)
     app.register_blueprint(report_bp)
     app.register_blueprint(inventory_bp)
-    
+    app.register_blueprint(fee_bp)
+    app.register_blueprint(student_bp)
+
+    app.add_url_rule('/fees/structures', endpoint='legacy_create_fee_structure', view_func=create_fee_structure, methods=['POST'])
+    app.add_url_rule('/fees/structures', endpoint='legacy_get_fee_structures', view_func=get_fee_structures, methods=['GET'])
 
     return app

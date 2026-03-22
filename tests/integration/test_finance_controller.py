@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from app import db
 from app.models.auth import Role, User
-from app.models.finance import VoteHead, Transaction
+from app.models.finance import VoteHead, Transaction, LedgerEntry
 
 
 class TestFinanceTransactions:
@@ -488,3 +488,118 @@ class TestFinanceContractCompliance:
         assert 'status' in data
         assert data['status'] == 'error'
         assert 'message' in data
+
+
+class TestFinanceReportingEndpoints:
+    """Regression tests for finance reporting endpoints."""
+
+    def _seed_ledger_data(self, app):
+        with app.app_context():
+            role = Role.query.filter_by(name='reporter').first()
+            if not role:
+                role = Role(name='reporter', permissions='read,write')
+                db.session.add(role)
+                db.session.flush()
+
+            user = User.query.filter_by(username='report_user').first()
+            if not user:
+                user = User(
+                    id=uuid.uuid4(),
+                    role_id=role.id,
+                    username='report_user',
+                    full_name='Report User',
+                    email='report_user@test.com',
+                    password_hash='hashed',
+                    is_active=True,
+                )
+                db.session.add(user)
+                db.session.flush()
+
+            vote_head = VoteHead.query.filter_by(code='TUIT').first()
+            if not vote_head:
+                vote_head = VoteHead(
+                    id=uuid.uuid4(),
+                    code='TUIT',
+                    name='Tuition',
+                    fund_type='CAPITATION',
+                    annual_budget=1000000.00,
+                    current_balance=0.00,
+                )
+                db.session.add(vote_head)
+                db.session.flush()
+
+            transaction = Transaction(
+                id=uuid.uuid4(),
+                vote_head_id=vote_head.id,
+                recorded_by=user.id,
+                transaction_type='INCOME',
+                amount=1000.00,
+                reference_number='REF-TRIAL-001',
+                description='Trial balance seed transaction',
+                transaction_date=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
+            )
+            db.session.add(transaction)
+            db.session.flush()
+
+            debit_entry = LedgerEntry(
+                id=uuid.uuid4(),
+                transaction_id=transaction.id,
+                vote_head_id=vote_head.id,
+                entry_type='DEBIT',
+                amount=1000.00,
+                payment_method='BANK',
+                reference_no='REF-TRIAL-001',
+                description='Debit seed',
+                created_by=user.id,
+            )
+
+            credit_entry = LedgerEntry(
+                id=uuid.uuid4(),
+                transaction_id=transaction.id,
+                vote_head_id=vote_head.id,
+                entry_type='CREDIT',
+                amount=1000.00,
+                payment_method='BANK',
+                reference_no='REF-TRIAL-001',
+                description='Credit seed',
+                created_by=user.id,
+            )
+
+            db.session.add(debit_entry)
+            db.session.add(credit_entry)
+            db.session.commit()
+
+    def test_trial_balance_returns_200_and_balanced_totals(self, client, app):
+        """GET /api/finance/reports/trial-balance should return balanced totals."""
+        self._seed_ledger_data(app)
+
+        response = client.get('/api/finance/reports/trial-balance')
+
+        assert response.status_code == 200
+        assert 'lines' in response.json
+        assert 'totals' in response.json
+        assert isinstance(response.json['lines'], list)
+        assert response.json['totals']['is_balanced'] is True
+
+    def test_account_ledger_returns_entries_for_vote_head_name(self, client, app):
+        """GET /api/finance/ledger/<account_name> should return account history."""
+        self._seed_ledger_data(app)
+
+        response = client.get('/api/finance/ledger/Tuition')
+
+        assert response.status_code == 200
+        assert isinstance(response.json, list)
+        assert len(response.json) >= 1
+        first_row = response.json[0]
+        assert 'account' in first_row
+        assert first_row['account'] == 'Tuition'
+        assert 'running_balance' in first_row
+        assert 'reference_no' in first_row
+
+    def test_account_ledger_returns_empty_list_for_unknown_account(self, client):
+        """GET /api/finance/ledger/<account_name> should return [] for unknown account."""
+        response = client.get('/api/finance/ledger/UnknownAccount')
+
+        assert response.status_code == 200
+        assert response.json == []

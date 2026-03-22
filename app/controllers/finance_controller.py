@@ -141,4 +141,16 @@ def get_trial_balance_report():
         tb_data = FinanceRepository.get_trial_balance()
         return jsonify(tb_data), 200
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400    
+        return jsonify({"status": "error", "message": str(e)}), 400 
+
+
+@finance_bp.route('/ledger/<account_name>', methods=['GET'])
+def get_specific_ledger(account_name):
+    """Fetches the chronological transaction history for a specific account."""
+    try:
+        ledger_history = FinanceRepository.get_account_ledger(account_name)
+        return jsonify(ledger_history), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 400

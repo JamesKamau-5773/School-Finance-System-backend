@@ -2,7 +2,8 @@ from app import create_app, db
 
 # Import your models here so SQLAlchemy knows they exist before creating tables
 from app.models.auth import Role, User
-from app.models.finance import VoteHead, Supplier, Student, Transaction, LedgerEntry
+from app.models.finance import VoteHead, Supplier, Transaction, LedgerEntry
+from app.models.student import Student
 
 app = create_app()
 

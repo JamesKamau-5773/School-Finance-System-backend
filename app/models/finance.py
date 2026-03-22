@@ -25,18 +25,6 @@ class Supplier(db.Model):
     
     transactions = db.relationship('Transaction', backref='supplier', lazy=True)
 
-class Student(db.Model):
-    __tablename__ = 'students'
-    
-    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    admission_number = db.Column(db.String(50), unique=True, nullable=False)
-    full_name = db.Column(db.String(150), nullable=False)
-    nemis_upi = db.Column(db.String(50), unique=True, nullable=True) 
-    parent_phone = db.Column(db.String(20), nullable=False) 
-    current_balance = db.Column(db.Numeric(12, 2), default=0.00)
-    
-    transactions = db.relationship('Transaction', backref='student', lazy=True)
-
 class Transaction(db.Model):
     __tablename__ = 'transactions'
     

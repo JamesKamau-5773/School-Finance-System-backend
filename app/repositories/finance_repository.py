@@ -1,4 +1,4 @@
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from app import db
 from app.models.finance import Transaction, LedgerEntry, VoteHead
 from app.utils.validators import is_valid_uuid
@@ -36,19 +36,20 @@ class FinanceRepository:
         by_code = VoteHead.query.filter_by(code=identifier_str).first()
         if by_code:
             return by_code
-        
+
         # Try exact name match
         by_name = VoteHead.query.filter_by(name=identifier_str).first()
         if by_name:
             return by_name
-        
+
         # Try with underscores converted to spaces
         normalized_name = identifier_str.replace('_', ' ')
         if normalized_name != identifier_str:
-            by_normalized = VoteHead.query.filter_by(name=normalized_name).first()
+            by_normalized = VoteHead.query.filter_by(
+                name=normalized_name).first()
             if by_normalized:
                 return by_normalized
-        
+
         return None
 
     @staticmethod
@@ -172,33 +173,35 @@ class FinanceRepository:
         """
         try:
             vote_heads = VoteHead.query.all()
-            
+
             # Calculate balances from ledger entries for each vote head
             ledger_balances = {}
             ledger_entries = LedgerEntry.query.all()
-            
+
             for entry in ledger_entries:
                 vh_id = entry.vote_head_id
                 if vh_id not in ledger_balances:
                     ledger_balances[vh_id] = {'credits': 0.0, 'debits': 0.0}
-                
+
                 amount = float(entry.amount) if entry.amount else 0.0
                 if entry.entry_type == 'CREDIT':
                     ledger_balances[vh_id]['credits'] += amount
                 elif entry.entry_type == 'DEBIT':
                     ledger_balances[vh_id]['debits'] += amount
-            
+
             # Deduplicate by name, keeping the first entry for each unique name
             seen_names = set()
             result = []
             for vh in vote_heads:
                 if vh.name not in seen_names:
                     seen_names.add(vh.name)
-                    
+
                     # Calculate net balance (credits - debits)
-                    balance_data = ledger_balances.get(vh.id, {'credits': 0.0, 'debits': 0.0})
-                    net_balance = balance_data['credits'] - balance_data['debits']
-                    
+                    balance_data = ledger_balances.get(
+                        vh.id, {'credits': 0.0, 'debits': 0.0})
+                    net_balance = balance_data['credits'] - \
+                        balance_data['debits']
+
                     result.append({
                         "id": str(vh.id),
                         "code": vh.code,
@@ -210,6 +213,7 @@ class FinanceRepository:
             return result
         except Exception as e:
             raise e
+
     @staticmethod
     def get_trial_balance():
         """
@@ -217,12 +221,16 @@ class FinanceRepository:
         Total Debits MUST equal Total Credits.
         """
         try:
-            # 1. Sum all debits and credits grouped by account name
+            # 1. Sum all debits and credits grouped by vote head name
             results = db.session.query(
-                LedgerEntry.account_name,
+                VoteHead.name,
                 LedgerEntry.entry_type,
                 func.sum(LedgerEntry.amount)
-            ).group_by(LedgerEntry.account_name, LedgerEntry.entry_type).all()
+            ).join(
+                VoteHead, LedgerEntry.vote_head_id == VoteHead.id
+            ).group_by(
+                VoteHead.name, LedgerEntry.entry_type
+            ).all()
 
             # 2. Process into a working dictionary
             accounts = {}
@@ -266,5 +274,56 @@ class FinanceRepository:
                     "is_balanced": round(net_total_debit, 2) == round(net_total_credit, 2)
                 }
             }
+        except Exception as e:
+            raise e
+
+    @staticmethod
+    def get_account_ledger(account_name):
+        """
+        Fetches the complete chronological history of a specific ledger account,
+        calculating the running balance after every transaction.
+        """
+        try:
+            # Join LedgerEntry with Transaction and VoteHead for account filtering
+            entries = db.session.query(
+                LedgerEntry, Transaction, VoteHead
+            ).join(
+                Transaction, LedgerEntry.transaction_id == Transaction.id
+            ).join(
+                VoteHead, LedgerEntry.vote_head_id == VoteHead.id
+            ).filter(
+                or_(
+                    VoteHead.name == account_name,
+                    VoteHead.code == account_name
+                )
+            ).order_by(Transaction.created_at.asc()).all()
+
+            history = []
+            running_balance = 0.0
+
+            for entry, tx, vote_head in entries:
+                amount = float(entry.amount)
+
+                # Calculate the running balance
+                if entry.entry_type == 'DEBIT':
+                    running_balance += amount
+                elif entry.entry_type == 'CREDIT':
+                    running_balance -= amount
+
+                history.append({
+                    "date": tx.created_at.strftime("%Y-%m-%d %H:%M"),
+                    "reference_no": tx.reference_number,
+                    "description": tx.description,
+                    "account": vote_head.name,
+                    "type": entry.entry_type,
+                    "debit": amount if entry.entry_type == 'DEBIT' else 0.0,
+                    "credit": amount if entry.entry_type == 'CREDIT' else 0.0,
+                    "running_balance": running_balance
+                })
+
+            # Reverse the list so the newest transactions appear at the top for the UI
+            history.reverse()
+            return history
+
         except Exception as e:
             raise e

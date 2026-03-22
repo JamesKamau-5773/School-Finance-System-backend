@@ -1,219 +1,192 @@
-from app.models.finance import Student
+from decimal import Decimal
+from sqlalchemy import func
 from app import db
+from app.models.student import Student
+from app.models.student_ledger import StudentLedger
 
 
 class StudentRepository:
     """
     Student repository for database operations on the Student model.
-    SRP: Single responsibility - only handles Student data access.
+    SRP: Single responsibility - only handles Student data access and ledger aggregation.
     """
-    
+
+    @staticmethod
+    def get_students_with_balances(search_term=None, only_defaulters=False):
+        """Fetches students, their contact info, and their live financial balance from the ledger."""
+        try:
+            # Subquery to calculate the net balance for every student directly from the ledger
+            balance_subq = db.session.query(
+                StudentLedger.student_id,
+                func.sum(
+                    func.case(
+                        (StudentLedger.entry_type == 'DEBIT', StudentLedger.amount),
+                        (StudentLedger.entry_type ==
+                         'CREDIT', -StudentLedger.amount),
+                        else_=0
+                    )
+                ).label('net_balance')
+            ).group_by(StudentLedger.student_id).subquery()
+
+            # Join the core Student profile with the calculated balance
+            query = db.session.query(Student, balance_subq.c.net_balance).outerjoin(
+                balance_subq, Student.id == balance_subq.c.student_id
+            )
+
+            # Apply Search Filter (Name or ADM Number)
+            if search_term:
+                search = f"%{search_term}%"
+                query = query.filter(
+                    db.or_(
+                        Student.first_name.ilike(search),
+                        Student.last_name.ilike(search),
+                        Student.admission_number.ilike(search)
+                    )
+                )
+
+            # Order alphabetically by first name
+            query = query.order_by(Student.first_name.asc())
+            results = query.all()
+
+            output = []
+
+            # Handle boolean or string representations of 'true'
+            check_defaulters = str(only_defaulters).lower() == 'true'
+
+            for student, balance in results:
+                net_bal = float(balance or 0.0)
+
+                # Filter out cleared students if the Bursar only wants defaulters
+                if check_defaulters and net_bal <= 0:
+                    continue
+
+                data = student.to_dict()
+                data['balance'] = net_bal
+                output.append(data)
+
+            return output
+        except Exception as e:
+            raise e
+
     @staticmethod
     def get_by_id(student_id):
-        """
-        Get a student by their ID.
-        
-        Args:
-            student_id: UUID of the student
-            
-        Returns:
-            Student object or None if not found
-        """
+        """Get a student by their ID."""
         return Student.query.get(student_id)
-    
+
     @staticmethod
     def get_by_admission_number(admission_number):
-        """
-        Get a student by their admission number.
-        
-        Args:
-            admission_number: Admission number (unique)
-            
-        Returns:
-            Student object or None if not found
-        """
+        """Get a student by their admission number."""
         return Student.query.filter_by(admission_number=admission_number).first()
-    
+
     @staticmethod
     def get_by_nemis_upi(nemis_upi):
-        """
-        Get a student by their NEMIS UPI.
-        
-        Args:
-            nemis_upi: NEMIS UPI (unique)
-            
-        Returns:
-            Student object or None if not found
-        """
+        """Get a student by their NEMIS UPI."""
         return Student.query.filter_by(nemis_upi=nemis_upi).first()
-    
+
     @staticmethod
     def get_all():
-        """
-        Get all students.
-        
-        Returns:
-            List of Student objects
-        """
+        """Get all students."""
         return Student.query.all()
-    
+
     @staticmethod
     def get_with_debt():
         """
         Get all students with outstanding balance (debt).
-        
-        Returns:
-            List of Student objects where current_balance > 0
+        Note: This uses the cached current_balance field for speed. 
+        For strict audit accuracy, rely on get_students_with_balances.
         """
         return Student.query.filter(Student.current_balance > 0).all()
-    
+
     @staticmethod
-    def create(admission_number, full_name, parent_phone, nemis_upi=None):
-        """
-        Create a new student record.
-        
-        Args:
-            admission_number: Unique admission number
-            full_name: Student's full name
-            parent_phone: Parent/guardian phone number
-            nemis_upi: Optional NEMIS UPI
-            
-        Returns:
-            Created Student object
-            
-        Raises:
-            ValueError: If admission_number already exists
-        """
+    def create(admission_number, first_name, last_name, parent_phone, nemis_upi=None):
+        """Create a new student record."""
         # Check for duplicate admission number
-        existing = Student.query.filter_by(admission_number=admission_number).first()
+        existing = Student.query.filter_by(
+            admission_number=admission_number).first()
         if existing:
-            raise ValueError(f"Student with admission number {admission_number} already exists")
-        
+            raise ValueError(
+                f"Student with admission number {admission_number} already exists")
+
         student = Student(
             admission_number=admission_number,
-            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
             parent_phone=parent_phone,
             nemis_upi=nemis_upi,
             current_balance=0.00
         )
-        
+
         db.session.add(student)
         db.session.flush()  # Get the student.id without committing
-        
+
         return student
-    
+
     @staticmethod
     def update_balance(student_id, amount_change):
-        """
-        Update student's balance (add or subtract amount).
-        
-        Args:
-            student_id: UUID of the student
-            amount_change: Amount to add to balance (negative to subtract)
-            
-        Returns:
-            Updated Student object or None if not found
-        """
+        """Update student's cached balance (add or subtract amount)."""
         student = Student.query.get(student_id)
         if not student:
             return None
-        
-        # Update the balance
-        from decimal import Decimal
-        student.current_balance = (student.current_balance or 0) + Decimal(str(amount_change))
-        
+
+        student.current_balance = (
+            student.current_balance or 0) + Decimal(str(amount_change))
+
         db.session.add(student)
         db.session.flush()
-        
+
         return student
-    
+
     @staticmethod
     def set_balance(student_id, new_balance):
-        """
-        Set student's balance to a specific amount.
-        
-        Args:
-            student_id: UUID of the student
-            new_balance: New balance amount
-            
-        Returns:
-            Updated Student object or None if not found
-        """
+        """Set student's cached balance to a specific amount."""
         student = Student.query.get(student_id)
         if not student:
             return None
-        
-        from decimal import Decimal
+
         student.current_balance = Decimal(str(new_balance))
-        
+
         db.session.add(student)
         db.session.flush()
-        
+
         return student
-    
+
     @staticmethod
     def update(student_id, **kwargs):
-        """
-        Update student attributes.
-        
-        Args:
-            student_id: UUID of the student
-            **kwargs: Attributes to update (full_name, parent_phone, nemis_upi)
-            
-        Returns:
-            Updated Student object or None if not found
-        """
+        """Update specific student attributes."""
         student = Student.query.get(student_id)
         if not student:
             return None
-        
+
         # Only allow specific fields to be updated
-        allowed_fields = {'full_name', 'parent_phone', 'nemis_upi'}
+        allowed_fields = {'first_name', 'last_name',
+                          'parent_phone', 'nemis_upi'}
         for key, value in kwargs.items():
             if key in allowed_fields:
                 setattr(student, key, value)
-        
+
         db.session.add(student)
         db.session.flush()
-        
+
         return student
-    
+
     @staticmethod
     def delete(student_id):
-        """
-        Delete a student record.
-        
-        Args:
-            student_id: UUID of the student
-            
-        Returns:
-            Boolean indicating success
-        """
+        """Delete a student record."""
         student = Student.query.get(student_id)
         if not student:
             return False
-        
+
         db.session.delete(student)
         db.session.flush()
-        
+
         return True
-    
+
     @staticmethod
     def count():
-        """
-        Count total number of students.
-        
-        Returns:
-            Integer count of students
-        """
+        """Count total number of students."""
         return Student.query.count()
-    
+
     @staticmethod
     def count_with_debt():
-        """
-        Count students with outstanding balance.
-        
-        Returns:
-            Integer count of students with debt
-        """
+        """Count students with outstanding cached balance."""
         return Student.query.filter(Student.current_balance > 0).count()
