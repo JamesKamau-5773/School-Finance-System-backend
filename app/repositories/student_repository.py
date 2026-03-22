@@ -1,5 +1,5 @@
 from decimal import Decimal
-from sqlalchemy import func
+from sqlalchemy import func, case
 from app import db
 from app.models.student import Student
 from app.models.student_ledger import StudentLedger
@@ -19,7 +19,7 @@ class StudentRepository:
             balance_subq = db.session.query(
                 StudentLedger.student_id,
                 func.sum(
-                    func.case(
+                    case(
                         (StudentLedger.entry_type == 'DEBIT', StudentLedger.amount),
                         (StudentLedger.entry_type ==
                          'CREDIT', -StudentLedger.amount),
@@ -33,14 +33,21 @@ class StudentRepository:
                 balance_subq, Student.id == balance_subq.c.student_id
             )
 
-            # Apply Search Filter (Name or ADM Number)
+            # Apply Omni-Search Filter
             if search_term:
                 search = f"%{search_term}%"
                 query = query.filter(
                     db.or_(
+                        # Search by Student Details
                         Student.first_name.ilike(search),
                         Student.last_name.ilike(search),
-                        Student.admission_number.ilike(search)
+                        Student.admission_number.ilike(search),
+                        Student.grade_level.ilike(search),
+                        
+                        # Search by Sponsor/Financial Contact Details
+                        Student.sponsor_name.ilike(search),
+                        Student.sponsor_phone.ilike(search),
+                        Student.sponsor_email.ilike(search)
                     )
                 )
 
