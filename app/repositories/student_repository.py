@@ -252,3 +252,13 @@ class StudentRepository:
         except Exception as e:
             db.session.rollback()
             raise e
+
+    @staticmethod
+    def get_ledger_history(student_id):
+        """Fetches a student's invoice/payment history ordered newest first."""
+        return (
+            StudentLedger.query
+            .filter_by(student_id=student_id)
+            .order_by(StudentLedger.created_at.desc())
+            .all()
+        )

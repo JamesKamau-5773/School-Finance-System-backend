@@ -1,7 +1,10 @@
 from flask import Blueprint, request, jsonify
 from app.services.finance_service import FinanceService
+from app.services.fee_service import FeeService
 from app.repositories.system_repository import SystemRepository
 from app.repositories.finance_repository import FinanceRepository
+from app.repositories.student_repository import StudentRepository
+from app.utils.validators import is_valid_uuid
 
 finance_bp = Blueprint('finance', __name__, url_prefix='/api/finance')
 
@@ -19,6 +22,8 @@ def get_ledger():
 def receive_payment():
     """Record a student fee payment."""
     data = request.get_json() or {}
+    payment_method = data.get('payment_method') or data.get('method')
+    reference_no = data.get('reference_no') or data.get('reference')
 
     try:
         # Get system context (user and budget head)
@@ -29,8 +34,8 @@ def receive_payment():
         receipt = FinanceService.process_fee_payment(
             student_id=data.get('student_id'),
             amount=data.get('amount'),
-            payment_method=data.get('payment_method'),
-            reference_no=data.get('reference_no'),
+            payment_method=payment_method,
+            reference_no=reference_no,
             user_id=user_id,
             vote_head_id=vote_head_id
         )
@@ -153,4 +158,34 @@ def get_specific_ledger(account_name):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@finance_bp.route('/student/<string:student_id>/ledger', methods=['GET'])
+def get_student_ledger_compat(student_id):
+    """Compatibility endpoint for frontend student ledger queries under /api/finance."""
+    try:
+        if not is_valid_uuid(student_id):
+            return jsonify({"status": "error", "message": "Invalid student_id format"}), 400
+
+        entries = StudentRepository.get_ledger_history(student_id)
+        return jsonify({
+            "status": "success",
+            "data": [entry.to_dict() for entry in entries]
+        }), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@finance_bp.route('/fee-structures/<int:structure_id>/invoice', methods=['POST'])
+@finance_bp.route('/fee-structures/<int:structure_id>/invoice/', methods=['POST'])
+def issue_fee_structure_invoices_compat(structure_id):
+    """Compatibility endpoint for issuing cohort invoices via /api/finance."""
+    try:
+        result = FeeService.issue_cohort_invoices(structure_id)
+        return jsonify({
+            "status": "success",
+            "data": result
+        }), 200
+    except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400

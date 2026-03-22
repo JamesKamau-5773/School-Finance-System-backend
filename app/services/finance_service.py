@@ -3,6 +3,7 @@ from decimal import Decimal
 import uuid
 from app import db
 from app.models.finance import Transaction
+from app.models.student_ledger import StudentLedger
 from app.models.auth import User
 from app.repositories.finance_repository import FinanceRepository
 from app.repositories.system_repository import SystemRepository
@@ -69,7 +70,7 @@ class FinanceService:
         if amount_value <= 0:
             raise ValueError("amount must be greater than 0")
 
-        # Create and persist transaction
+        # Create and persist transaction (+ student ledger credit when student is known)
         try:
             description_base = f"Payment received via {payment_method}"
             
@@ -92,6 +93,17 @@ class FinanceService:
                 transaction_date=datetime.now(timezone.utc)
             )
             db.session.add(transaction)
+
+            if valid_student_id:
+                student_ledger_entry = StudentLedger(
+                    student_id=valid_student_id,
+                    entry_type='CREDIT',
+                    amount=amount_value,
+                    description=f"Payment received via {payment_method}",
+                    reference_no=reference_no
+                )
+                db.session.add(student_ledger_entry)
+
             db.session.commit()
             return transaction.to_dict()
         except Exception as e:
