@@ -43,6 +43,22 @@ class FinanceService:
         return FinanceRepository.get_all_vote_heads()
 
     @staticmethod
+    def _build_unique_student_ledger_reference(reference_no):
+        base_reference = str(reference_no or '').strip()
+        if not base_reference:
+            base_reference = 'REF'
+
+        if not StudentLedger.query.filter_by(reference_no=base_reference).first():
+            return base_reference
+
+        suffix = 1
+        while True:
+            candidate = f"{base_reference}-{suffix}"
+            if not StudentLedger.query.filter_by(reference_no=candidate).first():
+                return candidate
+            suffix += 1
+
+    @staticmethod
     def process_fee_payment(student_id, amount, payment_method, reference_no, user_id, vote_head_id):
         """Record a fee payment (income transaction).
         
@@ -95,12 +111,13 @@ class FinanceService:
             db.session.add(transaction)
 
             if valid_student_id:
+                safe_reference_no = FinanceService._build_unique_student_ledger_reference(reference_no)
                 student_ledger_entry = StudentLedger(
                     student_id=valid_student_id,
                     entry_type='CREDIT',
                     amount=amount_value,
                     description=f"Payment received via {payment_method}",
-                    reference_no=reference_no
+                    reference_no=safe_reference_no
                 )
                 db.session.add(student_ledger_entry)
 

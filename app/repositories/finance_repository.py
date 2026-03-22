@@ -331,29 +331,40 @@ class FinanceRepository:
     @staticmethod
     def get_filtered_transactions(filters):
         """
-        Fetches the cashbook ledger applying both the Omni-Search and Advanced Filters.
-        
-        Supports:
-        - Broad omni-search across description, reference_no, and account_name
-        - Advanced filters: date, type (Income/Expense), category, method, minAmount
+        Fetches cashbook transactions applying both Omni-Search and Advanced Filters.
+        Returns one row per Transaction (not per LedgerEntry) for frontend compatibility.
         """
         try:
-            # Base query joining the Transaction wrapper with the specific Ledger Entry
-            query = db.session.query(Transaction, LedgerEntry).join(
+            query = db.session.query(Transaction).outerjoin(
                 LedgerEntry, Transaction.id == LedgerEntry.transaction_id
+            ).outerjoin(
+                VoteHead, LedgerEntry.vote_head_id == VoteHead.id
             )
 
             # 1. The Omni-Search Engine (Broad Net)
             search_term = filters.get('search')
             if search_term:
                 search_pattern = f"%{search_term}%"
-                query = query.filter(
-                    or_(
-                        Transaction.description.ilike(search_pattern),
-                        Transaction.reference_number.ilike(search_pattern),
-                        LedgerEntry.reference_no.ilike(search_pattern)
-                    )
-                )
+                search_upper = search_term.upper().strip()
+                # Check if search term matches transaction type keywords
+                is_income_search = search_upper in ('INCOME', 'CREDIT', 'INV', 'PAYMENT')
+                is_expense_search = search_upper in ('EXPENSE', 'DEBIT', 'EXP')
+                
+                conditions = [
+                    Transaction.description.ilike(search_pattern),
+                    Transaction.reference_number.ilike(search_pattern),
+                    VoteHead.name.ilike(search_pattern),
+                    VoteHead.code.ilike(search_pattern),
+                    LedgerEntry.reference_no.ilike(search_pattern),
+                    LedgerEntry.description.ilike(search_pattern)
+                ]
+                
+                if is_income_search:
+                    conditions.append(Transaction.transaction_type == 'INCOME')
+                if is_expense_search:
+                    conditions.append(Transaction.transaction_type == 'EXPENSE')
+                
+                query = query.filter(or_(*conditions))
 
             # 2. Advanced Filters (Strict Constraints)
             
@@ -363,46 +374,65 @@ class FinanceRepository:
                 # Assuming date_filter comes in as 'YYYY-MM-DD'
                 query = query.filter(func.date(Transaction.created_at) == date_filter)
 
-            # Transaction Type (Income = CREDIT, Expense = DEBIT in standard accounting)
+            # Transaction Type
             tx_type = filters.get('type')
-            if tx_type == 'Income':
-                query = query.filter(LedgerEntry.entry_type == 'CREDIT')
-            elif tx_type == 'Expense':
-                query = query.filter(LedgerEntry.entry_type == 'DEBIT')
+            if tx_type:
+                normalized_type = tx_type.strip().upper()
+                if normalized_type in ('INCOME', 'CREDIT'):
+                    query = query.filter(Transaction.transaction_type == 'INCOME')
+                elif normalized_type in ('EXPENSE', 'DEBIT'):
+                    query = query.filter(Transaction.transaction_type == 'EXPENSE')
 
             # Category / Ledger Name Filter
             category = filters.get('category')
             if category:
-                query = query.filter(LedgerEntry.reference_no.ilike(f"%{category}%"))
+                category_pattern = f"%{category}%"
+                query = query.filter(
+                    or_(
+                        VoteHead.name.ilike(category_pattern),
+                        VoteHead.code.ilike(category_pattern),
+                        LedgerEntry.description.ilike(category_pattern)
+                    )
+                )
 
             # Payment Method Filter
             method = filters.get('method')
             if method:
-                query = query.filter(Transaction.description.ilike(f"%{method}%"))
+                method_pattern = f"%{method}%"
+                query = query.filter(
+                    or_(
+                        LedgerEntry.payment_method.ilike(method_pattern),
+                        Transaction.description.ilike(method_pattern),
+                        LedgerEntry.description.ilike(method_pattern)
+                    )
+                )
 
             # Minimum Amount Filter
             min_amount = filters.get('minAmount')
             if min_amount:
                 try:
-                    query = query.filter(LedgerEntry.amount >= float(min_amount))
+                    query = query.filter(Transaction.amount >= float(min_amount))
                 except ValueError:
-                    pass # Ignore if frontend sends invalid number string
+                    pass
 
-            # Order by most recent first and execute
-            query = query.order_by(Transaction.created_at.desc())
+            # Ensure one row per transaction, then order by newest first
+            query = query.distinct().order_by(Transaction.created_at.desc())
             results = query.all()
 
             # Format the output for the React frontend
             output = []
-            for tx, ledger in results:
+            for tx in results:
                 output.append({
-                    "id": ledger.id,
+                    "id": str(tx.id),
                     "date": tx.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "created_at": tx.created_at.isoformat() if tx.created_at else None,
                     "reference_no": tx.reference_number,
+                    "reference_number": tx.reference_number,
                     "description": tx.description,
-                    "account_name": ledger.reference_no,
-                    "type": "Income" if ledger.entry_type == 'CREDIT' else "Expense",
-                    "amount": float(ledger.amount)
+                    "account_name": tx.vote_head.name if tx.vote_head else None,
+                    "type": tx.transaction_type,
+                    "transaction_type": tx.transaction_type,
+                    "amount": float(tx.amount) if tx.amount is not None else 0.0
                 })
 
             return output

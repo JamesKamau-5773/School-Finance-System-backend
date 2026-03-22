@@ -7,6 +7,22 @@ from app.models.auth import User
 
 class FeeRepository:
     @staticmethod
+    def _build_unique_student_ledger_reference(reference_no):
+        base_reference = str(reference_no or '').strip()
+        if not base_reference:
+            base_reference = 'REF'
+
+        if not StudentLedger.query.filter_by(reference_no=base_reference).first():
+            return base_reference
+
+        suffix = 1
+        while True:
+            candidate = f"{base_reference}-{suffix}"
+            if not StudentLedger.query.filter_by(reference_no=candidate).first():
+                return candidate
+            suffix += 1
+
+    @staticmethod
     def create_fee_structure(data):
         """Saves a new BOM-approved levy to the database."""
         try:
@@ -54,13 +70,14 @@ class FeeRepository:
 
     @staticmethod
     def add_student_invoice(student_id, fee_structure_id, amount, description, reference_no):
+        safe_reference_no = FeeRepository._build_unique_student_ledger_reference(reference_no)
         invoice = StudentLedger(
             student_id=student_id,
             fee_structure_id=fee_structure_id,
             entry_type='DEBIT',
             amount=amount,
             description=description,
-            reference_no=reference_no
+            reference_no=safe_reference_no
         )
         db.session.add(invoice)
         return invoice
@@ -91,12 +108,13 @@ class FeeRepository:
 
     @staticmethod
     def add_student_credit(student_id, amount, payment_method, reference_no):
+        safe_reference_no = FeeRepository._build_unique_student_ledger_reference(reference_no)
         entry = StudentLedger(
             student_id=student_id,
             entry_type='CREDIT',
             amount=amount,
             description=f"Term Fee Payment via {payment_method}",
-            reference_no=reference_no
+            reference_no=safe_reference_no
         )
         db.session.add(entry)
         return entry
