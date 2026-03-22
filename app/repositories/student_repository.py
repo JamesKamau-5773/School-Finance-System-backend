@@ -43,7 +43,7 @@ class StudentRepository:
                         Student.last_name.ilike(search),
                         Student.admission_number.ilike(search),
                         Student.grade_level.ilike(search),
-                        
+
                         # Search by Sponsor/Financial Contact Details
                         Student.sponsor_name.ilike(search),
                         Student.sponsor_phone.ilike(search),
@@ -197,3 +197,58 @@ class StudentRepository:
     def count_with_debt():
         """Count students with outstanding cached balance."""
         return Student.query.filter(Student.current_balance > 0).count()
+
+    @staticmethod
+    def create_student(data):
+        """Registers a new student into the system."""
+        try:
+            new_student = Student(
+                admission_number=data['admission_number'],
+                first_name=data['first_name'],
+                last_name=data['last_name'],
+                grade_level=data['grade_level'],
+                sponsor_name=data['sponsor_name'],
+                sponsor_relation=data['sponsor_relation'],
+                sponsor_phone=data['sponsor_phone'],
+                sponsor_email=data.get('sponsor_email', '')
+            )
+            db.session.add(new_student)
+            db.session.commit()
+            return new_student.to_dict()
+        except Exception as e:
+            db.session.rollback()
+            raise e
+
+    @staticmethod
+    def update_student(student_id, data):
+        """Updates an existing student's profile or contact details."""
+        try:
+            student = Student.query.get(student_id)
+            if not student:
+                raise ValueError("Student not found.")
+
+            # Update allowable fields
+            for key in ['first_name', 'last_name', 'grade_level', 'sponsor_name', 'sponsor_relation', 'sponsor_phone', 'sponsor_email']:
+                if key in data:
+                    setattr(student, key, data[key])
+
+            db.session.commit()
+            return student.to_dict()
+        except Exception as e:
+            db.session.rollback()
+            raise e
+
+    @staticmethod
+    def deactivate_student(student_id):
+        """Soft-deletes a student so they are no longer billed, but preserves financial history."""
+        try:
+            student = Student.query.get(student_id)
+            if not student:
+                raise ValueError("Student not found.")
+
+            student.is_active = False
+            db.session.commit()
+            return True
+        except Exception as e:
+            db.session.rollback()
+            raise e
