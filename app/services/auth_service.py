@@ -3,6 +3,7 @@ from flask_jwt_extended import create_access_token
 from flask import request
 import bcrypt
 from app.security import LoginAttemptTracker, audit_log
+from app.services.role_service import RoleService
 
 
 class AuthService:
@@ -62,9 +63,10 @@ class AuthService:
         LoginAttemptTracker.reset_attempts(username, ip_address)
         
         # 5. Create JWT token with role claim
+        normalized_role = RoleService.normalize_role(user.role.name if user.role else 'user') or 'user'
         access_token = create_access_token(
             identity=str(user.id),
-            additional_claims={"role": user.role.name}
+            additional_claims={"role": normalized_role}
         )
         
         # 6. Update last login timestamp
@@ -73,11 +75,11 @@ class AuthService:
         db.session.commit()
         
         audit_log('AUTHENTICATE_SUCCESS', 'USER', str(user.id), 
-                 {'username': username, 'role': user.role.name, 'ip': ip_address})
+                 {'username': username, 'role': normalized_role, 'ip': ip_address})
         
         return {
             "message": "Login successful",
             "access_token": access_token,
-            "role": user.role.name,
+            "role": normalized_role,
             "user_id": str(user.id)
         }, 200

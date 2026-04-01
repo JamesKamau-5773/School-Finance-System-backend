@@ -1,26 +1,23 @@
 from flask import Flask, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from flask_jwt_extended import JWTManager
-from flask_cors import CORS
-from flask_caching import Cache
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-
 from config import Config
-
-# 1. Initialize Extensions (Unbound)
-db = SQLAlchemy()
-migrate = Migrate()
-jwt = JWTManager()
-cors = CORS()
-cache = Cache()
-limiter = Limiter(key_func=get_remote_address)
+from .extensions import db, migrate, jwt, cors, cache, limiter
 
 
 def create_app(config_class=Config):
+    """
+    Application factory pattern.
+    Initializes and configures the Flask application and its extensions.
+    """
     app = Flask(__name__)
     app.config.from_object(config_class)
+
+    # Initialize extensions with the app
+    db.init_app(app)
+    migrate.init_app(app, db)
+    jwt.init_app(app)
+    cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
+    cache.init_app(app)
+    limiter.init_app(app)
 
     cors_origins = app.config.get('CORS_ORIGINS', ['http://localhost:5173'])
     cors_allow_credentials = app.config.get('CORS_ALLOW_CREDENTIALS', True)
@@ -34,13 +31,6 @@ def create_app(config_class=Config):
         "supports_credentials": cors_allow_credentials,
         "max_age": cors_max_age
     }
-
-    # 2. Bind Extensions to the App instance
-    db.init_app(app)
-    migrate.init_app(app, db)
-    jwt.init_app(app)
-    cache.init_app(app)
-    limiter.init_app(app)
 
     # 3. CORS Configuration (SRP: Environment-aware frontend origins with credentials)
     cors.init_app(app, resources={
@@ -71,20 +61,9 @@ def create_app(config_class=Config):
     from app.utils.logger import setup_logger
     setup_logger(app)
 
-    # 7. Global Error Handler (SRP: Exception handling - no stack traces to client)
-    @app.errorhandler(Exception)
-    def handle_exception(e):
-        app.logger.exception(f"Unhandled exception: {str(e)}")
-        
-        # Don't expose stack traces in production
-        if app.debug:
-            raise e
-        
-        return jsonify({
-            "status": "error",
-            "code": "SYS-500",
-            "message": "An internal error occurred. Please contact support."
-        }), 500
+    # 7. Register Custom Error Handlers (SRP: Structured exception handling)
+    from app.error_handlers import register_error_handlers
+    register_error_handlers(app)
     
     @app.errorhandler(404)
     def handle_404(e):

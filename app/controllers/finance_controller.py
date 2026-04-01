@@ -5,16 +5,29 @@ from app.repositories.system_repository import SystemRepository
 from app.repositories.finance_repository import FinanceRepository
 from app.repositories.student_repository import StudentRepository
 from app.utils.validators import is_valid_uuid
+from app.validators.transaction_validators import TransactionFilterValidator
+from app.builders.transaction_query_builder import TransactionQueryBuilder
+from app.formatters.transaction_formatter import TransactionResponseFormatter
 
 finance_bp = Blueprint('finance', __name__, url_prefix='/api/finance')
 
 
 @finance_bp.route('/transactions', methods=['GET'])
 def get_transactions():
-    """Endpoint to fetch filtered cashbook transactions with Omni-Search and Advanced Filters."""
+    """
+    Endpoint to fetch filtered cashbook transactions with Omni-Search and Advanced Filters.
+    
+    Filters (all optional):
+    - search: Broad omni-search across descriptions, references, accounts
+    - type: INCOME or EXPENSE (case-insensitive)
+    - date: Exact date in YYYY-MM-DD format
+    - category: Vote head name or code
+    - method: Payment method name
+    - minAmount: Minimum transaction amount (numeric)
+    """
     try:
-        # Extract all potential filters from the query string
-        filters = {
+        # 1. VALIDATE: Extract and normalize filters
+        raw_filters = {
             'search': request.args.get('search'),
             'date': request.args.get('date'),
             'type': request.args.get('type'),
@@ -23,21 +36,26 @@ def get_transactions():
             'minAmount': request.args.get('minAmount')
         }
         
-        # Remove empty keys to clean up the dictionary
-        active_filters = {k: v for k, v in filters.items() if v}
-
-        transactions = FinanceRepository.get_filtered_transactions(active_filters)
+        # This will raise TransactionValidationError with clear messages if any filter is invalid
+        validated_filters = TransactionFilterValidator.validate_filters(raw_filters)
         
-        return jsonify({
-            "status": "success", 
-            "data": transactions,
-            "count": len(transactions)
-        }), 200
+        # 2. BUILD: Construct query with validated filters
+        query_builder = TransactionQueryBuilder()
+        transactions = (query_builder
+            .build_base_query()
+            .apply_all_filters(validated_filters)
+            .order_by_newest()
+            .execute()
+        )
+        
+        # 3. FORMAT: Transform to validated API response with correct type labels
+        response = TransactionResponseFormatter.format_api_response(transactions)
+        
+        return jsonify(response), 200
         
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 400
+        # Error handlers will catch and format appropriately
+        raise
 
 
 @finance_bp.route('/pay', methods=['POST'])

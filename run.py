@@ -4,12 +4,14 @@ from app import create_app, db
 from app.models.auth import Role, User
 from app.models.finance import VoteHead, Supplier, Transaction, LedgerEntry
 from app.models.student import Student
+from app.services.role_service import RoleService
 
 app = create_app()
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        RoleService.ensure_default_roles()
         print("Database tables verified and created successfully.")
 
     # Start the server on port 5000

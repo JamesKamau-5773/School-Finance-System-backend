@@ -248,7 +248,7 @@ class TestInventoryControllerRecordConsumption:
         assert data['remaining_stock'] == 100.0  # Unchanged
     
     def test_record_consumption_decimal_quantity(self, client, admin_token, inventory_item, json_headers):
-        """Should handle decimal quantities."""
+        """Should reject decimal quantities for integer-only inventory policy."""
         headers = {**json_headers, 'Authorization': f'Bearer {admin_token}'}
         
         payload = {
@@ -263,9 +263,9 @@ class TestInventoryControllerRecordConsumption:
             headers=headers
         )
         
-        assert response.status_code == 201
+        assert response.status_code == 400
         data = json.loads(response.data)
-        assert data['remaining_stock'] == 94.25  # 100 - 5.75
+        assert 'whole number' in data.get('message', '').lower() or 'integer' in data.get('message', '').lower()
 
 
 class TestInventoryControllerAddStock:

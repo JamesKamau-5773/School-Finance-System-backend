@@ -4,6 +4,7 @@ Provides Flask app, database, JWT tokens, and test data.
 """
 import pytest
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from flask_jwt_extended import create_access_token
 from app import db, create_app
@@ -42,10 +43,10 @@ def client(app):
 def reset_db(app):
     """Reset database before each test."""
     with app.app_context():
-        db.session.rollback()
         db.session.remove()
+        db.drop_all()
+        db.create_all()
         yield
-        db.session.rollback()
         db.session.remove()
 
 
@@ -62,6 +63,7 @@ def admin_user(app):
         user = User(
             id=uuid.uuid4(),
             username='admin',
+            full_name='Admin User',
             email='admin@test.com',
             role_id=admin_role.id,
             is_active=True
@@ -69,7 +71,7 @@ def admin_user(app):
         user.set_password('adminpass123')
         db.session.add(user)
         db.session.commit()
-        return user
+        return SimpleNamespace(id=user.id, username=user.username)
 
 
 @pytest.fixture
@@ -84,6 +86,7 @@ def regular_user(app):
         user = User(
             id=uuid.uuid4(),
             username='testuser',
+            full_name='Regular User',
             email='user@test.com',
             role_id=user_role.id,
             is_active=True
@@ -91,21 +94,21 @@ def regular_user(app):
         user.set_password('userpass123')
         db.session.add(user)
         db.session.commit()
-        return user
+        return SimpleNamespace(id=user.id, username=user.username)
 
 
 @pytest.fixture
 def admin_token(app, admin_user):
     """Generate a valid JWT token for admin user."""
     with app.app_context():
-        return create_access_token(identity=str(admin_user.id))
+        return create_access_token(identity=str(admin_user.id), additional_claims={"role": "admin"})
 
 
 @pytest.fixture
 def user_token(app, regular_user):
     """Generate a valid JWT token for regular user."""
     with app.app_context():
-        return create_access_token(identity=str(regular_user.id))
+        return create_access_token(identity=str(regular_user.id), additional_claims={"role": "user"})
 
 
 @pytest.fixture
@@ -114,16 +117,18 @@ def inventory_item(app, admin_user):
     with app.app_context():
         item = Inventory(
             id=uuid.uuid4(),
-            item_name='Maize',
+            item_code=f'MAIZE-{uuid.uuid4().hex[:8].upper()}',
+            name='Maize',
+            category='Food',
             unit_of_measure='90kg Bag',
-            current_quantity=100.00,
+            current_stock=100.00,
             reorder_level=20.00,
-            average_daily_consumption=5.00,
+            avg_daily_consumption=5.00,
             updated_at=datetime.now(timezone.utc)
         )
         db.session.add(item)
         db.session.commit()
-        return item
+        return SimpleNamespace(id=item.id, name=item.name)
 
 
 @pytest.fixture
@@ -132,16 +137,18 @@ def low_stock_item(app, admin_user):
     with app.app_context():
         item = Inventory(
             id=uuid.uuid4(),
-            item_name='Beans',
+            item_code=f'BEANS-{uuid.uuid4().hex[:8].upper()}',
+            name='Beans',
+            category='Food',
             unit_of_measure='50kg Bag',
-            current_quantity=15.00,
+            current_stock=15.00,
             reorder_level=20.00,
-            average_daily_consumption=3.00,
+            avg_daily_consumption=3.00,
             updated_at=datetime.now(timezone.utc)
         )
         db.session.add(item)
         db.session.commit()
-        return item
+        return SimpleNamespace(id=item.id, name=item.name)
 
 
 @pytest.fixture
@@ -150,9 +157,10 @@ def inventory_log(app, inventory_item, admin_user):
     with app.app_context():
         log = InventoryLog(
             id=uuid.uuid4(),
-            inventory_id=inventory_item.id,
-            quantity=-5.00,
-            transaction_type='CONSUMPTION',
+            item_id=inventory_item.id,
+            quantity=5.00,
+            transaction_type='OUT',
+            party_name='Internal Requisition',
             recorded_by=admin_user.id,
             remarks='Daily consumption',
             created_at=datetime.now(timezone.utc)

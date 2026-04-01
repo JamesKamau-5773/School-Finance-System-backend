@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timedelta
 from flask import jsonify, request, current_app
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
+from app.services.role_service import RoleService
 
 
 # ==================== RATE LIMITING FOR LOGIN ====================
@@ -84,13 +85,15 @@ def roles_required(*allowed_roles):
             return {"message": "Admin only"}
     """
     def decorator(fn):
+        normalized_allowed_roles = {RoleService.normalize_role(role) for role in allowed_roles}
+
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             verify_jwt_in_request()
             claims = get_jwt()
-            user_role = claims.get('role')
+            user_role = RoleService.normalize_role(claims.get('role'))
             
-            if user_role not in allowed_roles:
+            if user_role not in normalized_allowed_roles:
                 return jsonify({
                     "error": "Insufficient permissions",
                     "message": f"This endpoint requires one of: {', '.join(allowed_roles)}"
@@ -189,6 +192,24 @@ class InputSanitizer:
             return num
         except (ValueError, TypeError):
             raise ValueError(f"Invalid number: {value}")
+
+    @classmethod
+    def sanitize_integer(cls, value, min_val=0, max_val=999999999):
+        """Sanitize integer input (whole numbers only)."""
+        try:
+            if isinstance(value, bool):
+                raise ValueError()
+
+            num = float(value)
+            if not num.is_integer():
+                raise ValueError("Value must be a whole number")
+
+            integer_value = int(num)
+            if integer_value < min_val or integer_value > max_val:
+                raise ValueError(f"Number must be between {min_val} and {max_val}")
+            return integer_value
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid integer value: {value}")
     
     @classmethod
     def sanitize_phone(cls, phone):
