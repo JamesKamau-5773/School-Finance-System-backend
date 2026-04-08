@@ -25,7 +25,7 @@ def generate_token(username, password):
         if user:
             # Verify password
             if not bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
-                print(f"❌ Invalid password for user '{username}'")
+                print(f"Invalid password for user '{username}'")
                 return None
             print(f"✓ Found existing user: {username}")
         else:
