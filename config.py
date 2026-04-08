@@ -57,7 +57,14 @@ class Config:
             'connect_args': {'sslmode': 'require'}  # Force SSL for PostgreSQL
         }
     
-    # 8. Production Security Flags
+    # 8. Rate Limiting (SRP: Request throttling by endpoint category)
+    # Configured per deployment - stricter on auth, moderate on writes, permissive on reads
+    RATELIMIT_AUTH = os.environ.get('RATELIMIT_AUTH', '5/minute')
+    RATELIMIT_WRITE = os.environ.get('RATELIMIT_WRITE', '30/minute')
+    RATELIMIT_READ = os.environ.get('RATELIMIT_READ', '100/minute')
+    RATELIMIT_STORAGE_URL = os.environ.get('RATELIMIT_STORAGE_URL', 'memory://')  # In-memory by default; use redis:// for production
+    
+    # 9. Production Security Flags
     PROPAGATE_EXCEPTIONS = False  # Don't expose exceptions to client
     TRAP_HTTP_EXCEPTIONS = True
     TRAP_BAD_REQUEST_ERRORS = True

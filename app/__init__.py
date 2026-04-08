@@ -1,6 +1,7 @@
 from flask import Flask, jsonify
 from config import Config
 from .extensions import db, migrate, jwt, cors, cache, limiter
+from .rate_limiting import apply_rate_limits
 
 
 def create_app(config_class=Config):
@@ -106,5 +107,8 @@ def create_app(config_class=Config):
 
     app.add_url_rule('/fees/structures', endpoint='legacy_create_fee_structure', view_func=create_fee_structure, methods=['POST'])
     app.add_url_rule('/fees/structures', endpoint='legacy_get_fee_structures', view_func=get_fee_structures, methods=['GET'])
+
+    # 10. Rate Limiting (SRP: Apply after all routes are registered)
+    apply_rate_limits(app)
 
     return app

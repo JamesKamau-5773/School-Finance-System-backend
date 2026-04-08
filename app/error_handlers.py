@@ -3,6 +3,7 @@ Error handling middleware for graceful error responses.
 Responsibility: Convert internal errors into clear, client-friendly JSON responses.
 """
 from flask import jsonify, current_app
+from werkzeug.exceptions import TooManyRequests
 from app.validators.transaction_validators import ValidationError as TransactionValidationError
 from app.validators.response_validators import ResponseValidationError
 import traceback
@@ -50,6 +51,18 @@ def register_error_handlers(app):
             "message": error_msg
         }), 400
 
+    @app.errorhandler(429)
+    def handle_rate_limit_exceeded(error):
+        """Handle rate limit exceeded errors (SRP: Rate limit response formatting)."""
+        current_app.logger.warning(f'Rate limit exceeded: {error.description}')
+        
+        return jsonify({
+            "status": "error",
+            "code": "RATE_LIMIT_EXCEEDED",
+            "message": "Too many requests. Please slow down.",
+            "hint": "Rate limits are enforced per IP address. Try again in a moment."
+        }), 429
+    
     @app.errorhandler(Exception)
     def handle_generic_exception(error):
         """Handle unexpected exceptions."""

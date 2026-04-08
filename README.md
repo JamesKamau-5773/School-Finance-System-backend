@@ -46,6 +46,12 @@ JWT_SECRET_KEY=your_jwt_secret_key
 DATABASE_URL=sqlite:///school_db.db
 CORS_ORIGINS=http://localhost:5173
 ENFORCE_HTTPS=False
+
+# Rate Limiting (optional; defaults shown)
+RATELIMIT_AUTH=5/minute
+RATELIMIT_WRITE=30/minute
+RATELIMIT_READ=100/minute
+RATELIMIT_STORAGE_URL=memory://
 ```
 
 ## Run the Application
@@ -73,6 +79,25 @@ If needed, create a new migration:
 flask db migrate -m "describe change"
 flask db upgrade
 ```
+
+## Rate Limiting
+
+Rate limits are enforced per IP address to protect against abuse. Limits are configured by endpoint category:
+
+- **AUTH endpoints** (5 req/minute) — Login, registration, password reset
+- **WRITE endpoints** (30 req/minute) — Create, update, delete operations
+- **READ endpoints** (100 req/minute) — Query endpoints
+
+Rate limits are environment-configurable and can be tuned per deployment:
+
+```env
+RATELIMIT_AUTH=5/minute
+RATELIMIT_WRITE=30/minute
+RATELIMIT_READ=100/minute
+RATELIMIT_STORAGE_URL=memory://  # Use redis:// for production clustering
+```
+
+When rate limit is exceeded, the API returns a `429 Too Many Requests` response with a helpful error message.
 
 ## Test Commands
 
