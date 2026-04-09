@@ -115,25 +115,21 @@ class FeeService:
                 raise ValueError("received_by must be a valid user UUID")
             recorded_by = system_user.id
 
-        cash_vote_head = FeeRepository.get_vote_head_by_code('BANK-MAIN')
-        if not cash_vote_head:
-            cash_vote_head = FeeRepository.create_vote_head(
-                code='BANK-MAIN',
-                name='Asset Bank Main Account',
-                fund_type='FEES',
-                annual_budget=0,
-                current_balance=0
-            )
+        fee_vote_heads = FeeRepository.get_vote_heads_by_fund_type('FEES')
 
-        revenue_vote_head = FeeRepository.get_vote_head_by_code('FEE-DEFAULT')
-        if not revenue_vote_head:
-            revenue_vote_head = FeeRepository.create_vote_head(
-                code='FEE-DEFAULT',
-                name='Default Fee Collection',
-                fund_type='FEES',
-                annual_budget=0,
-                current_balance=0
-            )
+        if len(fee_vote_heads) < 2:
+            while len(fee_vote_heads) < 2:
+                created = FeeRepository.create_vote_head(
+                    code=f"FEES-{uuid.uuid4().hex[:8].upper()}",
+                    name=f"Fees {uuid.uuid4().hex[:6].upper()}",
+                    fund_type='FEES',
+                    annual_budget=0,
+                    current_balance=0
+                )
+                fee_vote_heads.append(created)
+
+        cash_vote_head = fee_vote_heads[0]
+        revenue_vote_head = fee_vote_heads[1]
 
         try:
             with db.session.begin():

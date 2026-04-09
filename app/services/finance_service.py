@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import uuid
 from app import db
-from app.models.finance import Transaction
+from app.models.finance import Transaction, VoteHead
 from app.models.student_ledger import StudentLedger
 from app.models.auth import User
 from app.repositories.finance_repository import FinanceRepository
@@ -17,15 +17,6 @@ class FinanceService:
     Single Responsibility: Create and persist Transaction records to database.
     Does NOT handle user/vote head lookup (delegated to SystemRepository).
     """
-
-    FDSE_CAPITATION_RATIOS = {
-        'Tuition': Decimal('0.45'),
-        'RMI': Decimal('0.20'),
-        'Activity': Decimal('0.10'),
-        'Admin': Decimal('0.15'),
-        'SMASSE': Decimal('0.05'),
-        'Medical': Decimal('0.05')
-    }
 
     @staticmethod
     def get_recent_transactions(limit=50):
@@ -262,12 +253,51 @@ class FinanceService:
         if not reference_no:
             raise ValueError('reference_no is required')
 
+        # Dynamic vote-head allocation: no hardcoded vote-head names.
+        # 1) Prefer CAPITATION vote heads configured by admins.
+        # 2) Fallback to all vote heads.
+        # 3) If still empty, create one dynamically based on the term.
+        target_vote_heads = VoteHead.query.filter_by(fund_type='CAPITATION').all()
+        if not target_vote_heads:
+            target_vote_heads = VoteHead.query.all()
+
+        if not target_vote_heads:
+            dynamic_vote_head = VoteHeadRepository.create({
+                'code': f"VH-{str(uuid.uuid4())[:8].upper()}",
+                'name': str(term_identifier).strip(),
+                'fund_type': 'CAPITATION',
+                'annual_budget': 0,
+                'current_balance': 0,
+            })
+            dynamic_vote_head_obj = VoteHead.query.filter_by(code=dynamic_vote_head['code']).first()
+            target_vote_heads = [dynamic_vote_head_obj]
+
+        # Weighted allocation by annual_budget when present; otherwise equal split.
+        total_budget = sum(Decimal(str(vh.annual_budget or 0)) for vh in target_vote_heads)
+
+        credits = []
+        if total_budget > 0:
+            for vote_head in target_vote_heads:
+                ratio = Decimal(str(vote_head.annual_budget or 0)) / total_budget
+                credits.append((vote_head, (amount_dec * ratio).quantize(Decimal('0.01'))))
+        else:
+            equal_share = (amount_dec / Decimal(len(target_vote_heads))).quantize(Decimal('0.01'))
+            credits = [(vote_head, equal_share) for vote_head in target_vote_heads]
+
+        credited_total = sum(amount for _, amount in credits)
+        rounding_difference = amount_dec - credited_total
+        if credits and rounding_difference != 0:
+            first_vote_head, first_amount = credits[0]
+            credits[0] = (first_vote_head, first_amount + rounding_difference)
+
+        settlement_vote_head_name = target_vote_heads[0].name
+
         transaction_data = {
             'reference_no': reference_no,
             'student_id': None,
             'recorded_by': SystemRepository.get_or_create_system_user(),
-            'source_vote_head': 'Cash In Bank Capitation',
-            'destination_vote_head': 'Tuition',
+            'source_vote_head': settlement_vote_head_name,
+            'destination_vote_head': settlement_vote_head_name,
             'amount': amount_dec,
             'transaction_type': 'INCOME',
             'payment_method': 'BANK',
@@ -276,27 +306,18 @@ class FinanceService:
 
         ledger_lines = [
             {
-                'account_name': 'Cash In Bank Capitation',
+                'account_name': f"Income_VoteHead_{settlement_vote_head_name}",
                 'amount': amount_dec,
                 'entry_type': 'DEBIT'
             }
         ]
 
-        for vote_head, percentage in FinanceService.FDSE_CAPITATION_RATIOS.items():
-            allocated_amount = round(amount_dec * percentage, 2)
+        for vote_head, allocated_amount in credits:
             ledger_lines.append({
-                'account_name': f"Income_VoteHead_{vote_head}",
+                'account_name': f"Income_VoteHead_{vote_head.name}",
                 'amount': allocated_amount,
                 'entry_type': 'CREDIT'
             })
-
-        total_credits = sum(
-            line['amount'] for line in ledger_lines
-            if line['entry_type'] == 'CREDIT'
-        )
-        if total_credits != amount_dec:
-            difference = amount_dec - total_credits
-            ledger_lines[1]['amount'] += difference
 
         transaction = FinanceRepository.create_transaction_with_ledger(
             transaction_data,

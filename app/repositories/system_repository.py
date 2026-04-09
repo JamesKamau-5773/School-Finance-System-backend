@@ -51,7 +51,7 @@ class SystemRepository:
 
     @staticmethod
     def get_or_create_default_fee_vote_head():
-        """Get or create the default FEES vote head.
+        """Get or create a FEES vote head without hardcoded vote-head identity.
         
         Returns:
             UUID: The vote head's ID
@@ -60,8 +60,8 @@ class SystemRepository:
         if not vh:
             vh = VoteHead(
                 id=uuid.uuid4(),
-                code='FEE-DEFAULT',
-                name='Default Fee Collection',
+                code=f"FEES-{str(uuid.uuid4())[:8].upper()}",
+                name=f"Fees {str(uuid.uuid4())[:8].upper()}",
                 fund_type='FEES',
                 annual_budget=0.00,
                 current_balance=0.00

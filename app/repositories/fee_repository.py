@@ -95,6 +95,10 @@ class FeeRepository:
         return VoteHead.query.filter_by(code=code).first()
 
     @staticmethod
+    def get_vote_heads_by_fund_type(fund_type):
+        return VoteHead.query.filter_by(fund_type=fund_type).order_by(VoteHead.name.asc()).all()
+
+    @staticmethod
     def create_vote_head(code, name, fund_type='FEES', annual_budget=0, current_balance=0):
         vote_head = VoteHead(
             code=code,
