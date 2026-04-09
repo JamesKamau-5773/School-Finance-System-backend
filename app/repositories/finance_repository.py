@@ -165,18 +165,24 @@ class FinanceRepository:
     @staticmethod
     def get_all_vote_heads():
         """
-        Fetches all vote heads with their current balances calculated from ledger entries.
-        Deduplicates by name to return only one entry per unique vote head.
+        Fetches only ministry allocation vote heads (CAPITATION) with balances
+        calculated from their ledger entries.
         
         Balance calculation: Sum of CREDIT entries minus sum of DEBIT entries for each vote head.
         CREDIT = money received, DEBIT = money allocated/spent
         """
         try:
-            vote_heads = VoteHead.query.all()
+            vote_heads = VoteHead.query.filter_by(fund_type='CAPITATION').all()
+            vote_head_ids = [vote_head.id for vote_head in vote_heads]
+
+            if not vote_heads:
+                return []
 
             # Calculate balances from ledger entries for each vote head
             ledger_balances = {}
-            ledger_entries = LedgerEntry.query.all()
+            ledger_entries = LedgerEntry.query.filter(
+                LedgerEntry.vote_head_id.in_(vote_head_ids)
+            ).all()
 
             for entry in ledger_entries:
                 vh_id = entry.vote_head_id
@@ -189,27 +195,22 @@ class FinanceRepository:
                 elif entry.entry_type == 'DEBIT':
                     ledger_balances[vh_id]['debits'] += amount
 
-            # Deduplicate by name, keeping the first entry for each unique name
-            seen_names = set()
             result = []
             for vh in vote_heads:
-                if vh.name not in seen_names:
-                    seen_names.add(vh.name)
+                # Calculate net balance (credits - debits)
+                balance_data = ledger_balances.get(
+                    vh.id, {'credits': 0.0, 'debits': 0.0})
+                net_balance = balance_data['credits'] - \
+                    balance_data['debits']
 
-                    # Calculate net balance (credits - debits)
-                    balance_data = ledger_balances.get(
-                        vh.id, {'credits': 0.0, 'debits': 0.0})
-                    net_balance = balance_data['credits'] - \
-                        balance_data['debits']
-
-                    result.append({
-                        "id": str(vh.id),
-                        "code": vh.code,
-                        "name": vh.name,
-                        "fund_type": vh.fund_type,
-                        "annual_budget": float(vh.annual_budget),
-                        "current_balance": net_balance
-                    })
+                result.append({
+                    "id": str(vh.id),
+                    "code": vh.code,
+                    "name": vh.name,
+                    "fund_type": vh.fund_type,
+                    "annual_budget": float(vh.annual_budget),
+                    "current_balance": net_balance
+                })
             return result
         except Exception as e:
             raise e

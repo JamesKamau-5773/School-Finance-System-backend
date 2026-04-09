@@ -740,3 +740,105 @@ class TestVoteHeadCrudEndpoints:
 
         assert response.status_code == 404
         assert response.json['status'] == 'error'
+
+
+class TestVoteHeadDistributionFiltering:
+    """Tests for CAPITATION-only vote-head distribution behavior."""
+
+    def test_get_vote_heads_excludes_non_capitation_vote_heads(self, client, app):
+        with app.app_context():
+            role = Role(name='finance_tester', permissions='read,write')
+            db.session.add(role)
+            db.session.flush()
+
+            user = User(
+                id=uuid.uuid4(),
+                role_id=role.id,
+                username='finance_distribution_user',
+                full_name='Finance Distribution User',
+                email='finance_distribution@test.com',
+                password_hash='hashed',
+                is_active=True,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            cap_vote_head = VoteHead(
+                id=uuid.uuid4(),
+                code='CAP01',
+                name='Capitation Tuition',
+                fund_type='CAPITATION',
+                annual_budget=100000.00,
+                current_balance=0.00,
+            )
+            fee_vote_head = VoteHead(
+                id=uuid.uuid4(),
+                code='FEE01',
+                name='Fee Revenue',
+                fund_type='FEES',
+                annual_budget=100000.00,
+                current_balance=0.00,
+            )
+            db.session.add(cap_vote_head)
+            db.session.add(fee_vote_head)
+            db.session.flush()
+
+            tx_cap = Transaction(
+                id=uuid.uuid4(),
+                vote_head_id=cap_vote_head.id,
+                recorded_by=user.id,
+                transaction_type='INCOME',
+                amount=5000.00,
+                reference_number='CAP-001',
+                description='Capitation disbursement',
+                transaction_date=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
+            )
+            tx_fee = Transaction(
+                id=uuid.uuid4(),
+                vote_head_id=fee_vote_head.id,
+                recorded_by=user.id,
+                transaction_type='INCOME',
+                amount=9000.00,
+                reference_number='FEE-001',
+                description='Fee payment',
+                transaction_date=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
+            )
+            db.session.add(tx_cap)
+            db.session.add(tx_fee)
+            db.session.flush()
+
+            db.session.add(LedgerEntry(
+                id=uuid.uuid4(),
+                transaction_id=tx_cap.id,
+                vote_head_id=cap_vote_head.id,
+                entry_type='CREDIT',
+                amount=5000.00,
+                payment_method='BANK',
+                reference_no='CAP-001',
+                description='Capitation credit',
+                created_by=user.id,
+            ))
+            db.session.add(LedgerEntry(
+                id=uuid.uuid4(),
+                transaction_id=tx_fee.id,
+                vote_head_id=fee_vote_head.id,
+                entry_type='CREDIT',
+                amount=9000.00,
+                payment_method='BANK',
+                reference_no='FEE-001',
+                description='Fee credit',
+                created_by=user.id,
+            ))
+            db.session.commit()
+
+        response = client.get('/api/finance/vote-heads')
+
+        assert response.status_code == 200
+        names = [row['name'] for row in response.json]
+        assert 'Capitation Tuition' in names
+        assert 'Fee Revenue' not in names
+
+        cap_row = next(row for row in response.json if row['name'] == 'Capitation Tuition')
+        assert cap_row['current_balance'] == 5000.0
