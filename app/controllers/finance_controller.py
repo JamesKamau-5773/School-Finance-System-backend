@@ -8,6 +8,9 @@ from app.utils.validators import is_valid_uuid
 from app.validators.transaction_validators import TransactionFilterValidator
 from app.builders.transaction_query_builder import TransactionQueryBuilder
 from app.formatters.transaction_formatter import TransactionResponseFormatter
+from flask_jwt_extended import jwt_required
+from app.security import roles_required
+import uuid
 
 finance_bp = Blueprint('finance', __name__, url_prefix='/api/finance')
 
@@ -137,6 +140,75 @@ def get_vote_heads():
         return jsonify(vote_heads), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@finance_bp.route('/vote-heads', methods=['POST'])
+@jwt_required()
+@roles_required('admin', 'principal')
+def create_vote_head():
+    """Create a new vote head."""
+    data = request.get_json() or {}
+    try:
+        vote_head = FinanceService.create_vote_head(data)
+        return jsonify({
+            "status": "success",
+            "message": "Vote head created successfully",
+            "data": vote_head
+        }), 201
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@finance_bp.route('/vote-heads/<string:vote_head_id>', methods=['PUT'])
+@jwt_required()
+@roles_required('admin', 'principal')
+def update_vote_head(vote_head_id):
+    """Update an existing vote head."""
+    data = request.get_json() or {}
+    try:
+        if not is_valid_uuid(vote_head_id):
+            return jsonify({"status": "error", "message": "Invalid vote_head_id format"}), 400
+
+        vote_head_uuid = uuid.UUID(vote_head_id)
+
+        vote_head = FinanceService.update_vote_head(vote_head_uuid, data)
+        return jsonify({
+            "status": "success",
+            "message": "Vote head updated successfully",
+            "data": vote_head
+        }), 200
+    except ValueError as e:
+        if str(e) == 'vote head not found':
+            return jsonify({"status": "error", "message": str(e)}), 404
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@finance_bp.route('/vote-heads/<string:vote_head_id>', methods=['DELETE'])
+@jwt_required()
+@roles_required('admin', 'principal')
+def delete_vote_head(vote_head_id):
+    """Delete an existing vote head."""
+    try:
+        if not is_valid_uuid(vote_head_id):
+            return jsonify({"status": "error", "message": "Invalid vote_head_id format"}), 400
+
+        vote_head_uuid = uuid.UUID(vote_head_id)
+
+        FinanceService.delete_vote_head(vote_head_uuid)
+        return jsonify({
+            "status": "success",
+            "message": "Vote head deleted successfully"
+        }), 200
+    except ValueError as e:
+        if str(e) == 'vote head not found':
+            return jsonify({"status": "error", "message": str(e)}), 404
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @finance_bp.route('/reallocate', methods=['POST'])

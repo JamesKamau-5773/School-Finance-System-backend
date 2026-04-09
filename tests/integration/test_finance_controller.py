@@ -6,6 +6,7 @@ import pytest
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from flask_jwt_extended import create_access_token
 
 from app import db
 from app.models.auth import Role, User
@@ -20,7 +21,9 @@ class TestFinanceTransactions:
         response = client.get('/api/finance/transactions')
         
         assert response.status_code == 200
-        assert response.json == []
+        assert response.json['status'] == 'success'
+        assert response.json['count'] == 0
+        assert response.json['data'] == []
 
     def test_get_ledger_returns_latest_transactions_first(self, client, app):
         """GET /api/finance/transactions should return newest transactions first."""
@@ -86,7 +89,7 @@ class TestFinanceTransactions:
         response = client.get('/api/finance/transactions')
 
         assert response.status_code == 200
-        ids = [item['id'] for item in response.json]
+        ids = [item['id'] for item in response.json['data']]
         assert newer_id in ids
         assert older_id in ids
         assert ids.index(newer_id) < ids.index(older_id)
@@ -603,3 +606,137 @@ class TestFinanceReportingEndpoints:
 
         assert response.status_code == 200
         assert response.json == []
+
+
+class TestVoteHeadCrudEndpoints:
+    """Integration tests for vote head CRUD endpoints."""
+
+    def test_create_vote_head_success_admin(self, client, admin_token):
+        payload = {
+            "code": "ADM01",
+            "name": "Administration",
+            "fund_type": "CAPITATION",
+            "annual_budget": 250000,
+            "current_balance": 50000
+        }
+        response = client.post(
+            '/api/finance/vote-heads',
+            data=json.dumps(payload),
+            content_type='application/json',
+            headers={'Authorization': f'Bearer {admin_token}'}
+        )
+
+        assert response.status_code == 201
+        assert response.json['status'] == 'success'
+        assert response.json['data']['code'] == 'ADM01'
+        assert response.json['data']['name'] == 'Administration'
+
+    def test_create_vote_head_requires_auth(self, client):
+        payload = {
+            "code": "TST01",
+            "name": "Test Head",
+            "fund_type": "CAPITATION"
+        }
+        response = client.post(
+            '/api/finance/vote-heads',
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 401
+
+    def test_create_vote_head_forbidden_for_user_role(self, client, app):
+        with app.app_context():
+            user_token = create_access_token(identity=str(uuid.uuid4()), additional_claims={"role": "user"})
+
+        payload = {
+            "code": "TST02",
+            "name": "Test Head",
+            "fund_type": "CAPITATION"
+        }
+        response = client.post(
+            '/api/finance/vote-heads',
+            data=json.dumps(payload),
+            content_type='application/json',
+            headers={'Authorization': f'Bearer {user_token}'}
+        )
+
+        assert response.status_code == 403
+
+    def test_update_vote_head_success(self, client, app, admin_token):
+        with app.app_context():
+            vote_head = VoteHead(
+                id=uuid.uuid4(),
+                code='LIB01',
+                name='Library',
+                fund_type='FEES',
+                annual_budget=100000.00,
+                current_balance=10000.00,
+            )
+            db.session.add(vote_head)
+            db.session.commit()
+            vote_head_id = str(vote_head.id)
+
+        payload = {
+            "name": "Library Services",
+            "annual_budget": 150000
+        }
+        response = client.put(
+            f'/api/finance/vote-heads/{vote_head_id}',
+            data=json.dumps(payload),
+            content_type='application/json',
+            headers={'Authorization': f'Bearer {admin_token}'}
+        )
+
+        assert response.status_code == 200
+        assert response.json['status'] == 'success'
+        assert response.json['data']['name'] == 'Library Services'
+        assert response.json['data']['annual_budget'] == 150000.0
+
+    def test_update_vote_head_rejects_invalid_uuid(self, client, admin_token):
+        payload = {"name": "Updated Name"}
+        response = client.put(
+            '/api/finance/vote-heads/not-a-uuid',
+            data=json.dumps(payload),
+            content_type='application/json',
+            headers={'Authorization': f'Bearer {admin_token}'}
+        )
+
+        assert response.status_code == 400
+        assert response.json['status'] == 'error'
+
+    def test_delete_vote_head_success(self, client, app, admin_token):
+        with app.app_context():
+            vote_head = VoteHead(
+                id=uuid.uuid4(),
+                code='LAB01',
+                name='Laboratory',
+                fund_type='PROJECT',
+                annual_budget=200000.00,
+                current_balance=5000.00,
+            )
+            db.session.add(vote_head)
+            db.session.commit()
+            vote_head_id = str(vote_head.id)
+
+        response = client.delete(
+            f'/api/finance/vote-heads/{vote_head_id}',
+            headers={'Authorization': f'Bearer {admin_token}'}
+        )
+
+        assert response.status_code == 200
+        assert response.json['status'] == 'success'
+
+        with app.app_context():
+            deleted = VoteHead.query.filter_by(id=uuid.UUID(vote_head_id)).first()
+            assert deleted is None
+
+    def test_delete_vote_head_returns_404_when_not_found(self, client, admin_token):
+        missing_id = str(uuid.uuid4())
+        response = client.delete(
+            f'/api/finance/vote-heads/{missing_id}',
+            headers={'Authorization': f'Bearer {admin_token}'}
+        )
+
+        assert response.status_code == 404
+        assert response.json['status'] == 'error'

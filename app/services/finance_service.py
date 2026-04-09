@@ -6,6 +6,7 @@ from app.models.finance import Transaction
 from app.models.student_ledger import StudentLedger
 from app.models.auth import User
 from app.repositories.finance_repository import FinanceRepository
+from app.repositories.vote_head_repository import VoteHeadRepository
 from app.repositories.system_repository import SystemRepository
 from app.utils.validators import is_valid_uuid
 
@@ -41,6 +42,21 @@ class FinanceService:
     def get_all_vote_heads():
         """Fetch all vote heads with their current balances."""
         return FinanceRepository.get_all_vote_heads()
+
+    @staticmethod
+    def create_vote_head(data):
+        """Create a new vote head."""
+        return VoteHeadRepository.create(data)
+
+    @staticmethod
+    def update_vote_head(vote_head_id, data):
+        """Update an existing vote head."""
+        return VoteHeadRepository.update(vote_head_id, data)
+
+    @staticmethod
+    def delete_vote_head(vote_head_id):
+        """Delete an existing vote head."""
+        return VoteHeadRepository.delete(vote_head_id)
 
     @staticmethod
     def _build_unique_student_ledger_reference(reference_no):
