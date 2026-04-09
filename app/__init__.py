@@ -112,3 +112,7 @@ def create_app(config_class=Config):
     apply_rate_limits(app)
 
     return app
+
+
+# WSGI entrypoint for process managers (e.g., gunicorn app:app)
+app = create_app()
