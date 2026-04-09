@@ -89,7 +89,7 @@ redis==5.0.0
 referencing==0.35.1
 requests==2.31.0
 rich==13.9.4
-rpds-py==0.20.1
+rpds-py==0.30.0
 sendgrid==6.11.0
 sentry-sdk==2.48.0
 six==1.17.0
