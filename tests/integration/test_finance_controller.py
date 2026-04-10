@@ -493,6 +493,98 @@ class TestFinanceContractCompliance:
         assert 'message' in data
 
 
+class TestFinanceSummarySplit:
+    """Tests for school vs government collections summary."""
+
+    def test_summary_splits_school_and_government_collections(self, client, app):
+        with app.app_context():
+            role = Role(name='summary_tester', permissions='read,write')
+            db.session.add(role)
+            db.session.flush()
+
+            user = User(
+                id=uuid.uuid4(),
+                role_id=role.id,
+                username='summary_user',
+                full_name='Summary User',
+                email='summary@test.com',
+                password_hash='hashed',
+                is_active=True,
+            )
+            db.session.add(user)
+            db.session.flush()
+
+            fee_head = VoteHead(
+                id=uuid.uuid4(),
+                code='FEE-001',
+                name='School Fees',
+                fund_type='FEES',
+                annual_budget=0.00,
+                current_balance=0.00,
+            )
+            cap_head = VoteHead(
+                id=uuid.uuid4(),
+                code='CAP-001',
+                name='Government Capitation',
+                fund_type='CAPITATION',
+                annual_budget=0.00,
+                current_balance=0.00,
+            )
+            expense_head = VoteHead(
+                id=uuid.uuid4(),
+                code='EXP-001',
+                name='Operating Expense',
+                fund_type='FEES',
+                annual_budget=0.00,
+                current_balance=0.00,
+            )
+            db.session.add_all([fee_head, cap_head, expense_head])
+            db.session.flush()
+
+            db.session.add(Transaction(
+                id=uuid.uuid4(),
+                vote_head_id=fee_head.id,
+                recorded_by=user.id,
+                transaction_type='INCOME',
+                amount=8000.00,
+                reference_number='FEE-100',
+                description='Student fee payment',
+                transaction_date=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
+            ))
+            db.session.add(Transaction(
+                id=uuid.uuid4(),
+                vote_head_id=cap_head.id,
+                recorded_by=user.id,
+                transaction_type='INCOME',
+                amount=12000.00,
+                reference_number='CAP-100',
+                description='MoE capitation',
+                transaction_date=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
+            ))
+            db.session.add(Transaction(
+                id=uuid.uuid4(),
+                vote_head_id=expense_head.id,
+                recorded_by=user.id,
+                transaction_type='EXPENSE',
+                amount=2500.00,
+                reference_number='EXP-100',
+                description='Cleaning supplies',
+                transaction_date=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
+            ))
+            db.session.commit()
+
+        response = client.get('/api/finance/summary')
+
+        assert response.status_code == 200
+        assert response.json['school_collections'] == 8000.0
+        assert response.json['government_collections'] == 12000.0
+        assert response.json['total_collections'] == 20000.0
+        assert response.json['total_expenses'] == 2500.0
+
+
 class TestFinanceReportingEndpoints:
     """Regression tests for finance reporting endpoints."""
 

@@ -138,14 +138,36 @@ class FinanceRepository:
     def get_dashboard_summary():
         """
         Calculates aggregate financial totals directly in PostgreSQL.
+        
+        Summary breakdown:
+        - school_collections: income posted to FEES vote heads
+        - government_collections: income posted to CAPITATION vote heads
+        - total_collections: sum of school and government collections
         """
         try:
-            total_income = (
+            school_collections = (
                 db.session.query(func.sum(Transaction.amount))
-                .filter(Transaction.transaction_type == 'INCOME')
+                .join(VoteHead, Transaction.vote_head_id == VoteHead.id)
+                .filter(
+                    Transaction.transaction_type == 'INCOME',
+                    VoteHead.fund_type == 'FEES'
+                )
                 .scalar()
                 or 0
             )
+
+            government_collections = (
+                db.session.query(func.sum(Transaction.amount))
+                .join(VoteHead, Transaction.vote_head_id == VoteHead.id)
+                .filter(
+                    Transaction.transaction_type == 'INCOME',
+                    VoteHead.fund_type == 'CAPITATION'
+                )
+                .scalar()
+                or 0
+            )
+
+            total_income = school_collections + government_collections
 
             total_expense = (
                 db.session.query(func.sum(Transaction.amount))
@@ -155,6 +177,8 @@ class FinanceRepository:
             )
 
             return {
+                "school_collections": float(school_collections),
+                "government_collections": float(government_collections),
                 "total_collections": float(total_income),
                 "total_expenses": float(total_expense),
                 "net_position": float(total_income - total_expense)

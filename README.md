@@ -73,6 +73,42 @@ Run migrations from the project root:
 flask db upgrade
 ```
 
+## Docker
+
+This backend can run in Docker with PostgreSQL using the included `docker-compose.yml`.
+
+### Build and run
+
+```bash
+docker compose up --build -d
+```
+
+If your environment only has the legacy CLI, use:
+
+```bash
+docker-compose up --build -d
+```
+
+### Services
+
+- `api` - Flask backend served by Gunicorn
+- `db` - PostgreSQL database
+
+### Docker environment variables
+
+The compose file provides safe defaults, but you can override them with your own `.env` values:
+
+```env
+SECRET_KEY=your_secret_key
+JWT_SECRET_KEY=your_jwt_secret_key
+POSTGRES_DB=school_finance
+POSTGRES_USER=school
+POSTGRES_PASSWORD=school
+CORS_ORIGINS=http://localhost:5173
+```
+
+The backend container automatically runs database migrations and seeds default roles before starting.
+
 If needed, create a new migration:
 
 ```bash
