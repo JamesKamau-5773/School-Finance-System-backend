@@ -30,6 +30,9 @@ def test_get_inventory_transactions_returns_data(client, admin_token, inventory_
     assert payload['status'] == 'success'
     assert payload['count'] >= 2
     assert isinstance(payload['data'], list)
+    assert 'recorded_by_user' in payload['data'][0]
+    assert payload['data'][0]['recorded_by_user'] is not None
+    assert 'full_name' in payload['data'][0]['recorded_by_user']
 
 
 def test_get_inventory_transactions_filters_by_action_and_start_date(client, admin_token, inventory_item, json_headers):

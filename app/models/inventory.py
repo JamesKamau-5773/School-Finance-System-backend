@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy.dialects.postgresql import UUID
 from app.extensions import db
+from app.models.auth import User
 
 
 class InventoryItem(db.Model):
@@ -100,6 +101,8 @@ class StoreTransaction(db.Model):
     recorded_by = db.Column(
         UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=True, index=True)
 
+    recorded_by_user = db.relationship('User', foreign_keys=[recorded_by], lazy='joined')
+
     action = db.Column(db.String(20), nullable=False, index=True)  # received | issued
     quantity = db.Column(db.Integer, nullable=False)  # Integer-only by design
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(
@@ -110,6 +113,12 @@ class StoreTransaction(db.Model):
             "id": str(self.id),
             "item_id": str(self.item_id),
             "recorded_by": str(self.recorded_by) if self.recorded_by else None,
+            "recorded_by_user": ({
+                "id": str(self.recorded_by_user.id),
+                "username": self.recorded_by_user.username,
+                "full_name": self.recorded_by_user.full_name,
+                "email": self.recorded_by_user.email,
+            } if self.recorded_by_user else None),
             "action": self.action,
             "quantity": self.quantity,
             "created_at": self.created_at.isoformat(),
