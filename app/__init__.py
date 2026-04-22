@@ -91,6 +91,7 @@ def create_app(config_class=Config):
     from app.controllers.auth_controller import auth_bp
     from app.controllers.transaction_controller import transaction_bp
     from app.controllers.finance_controller import finance_bp
+    from app.controllers.admin_controller import admin_bp
     from app.controllers.report_controller import report_bp
     from app.controllers.inventory_controller import inventory_bp
     from app.controllers.fee_controller import fee_bp, create_fee_structure, get_fee_structures
@@ -100,6 +101,7 @@ def create_app(config_class=Config):
     app.register_blueprint(auth_bp)
     app.register_blueprint(transaction_bp)
     app.register_blueprint(finance_bp)
+    app.register_blueprint(admin_bp)
     app.register_blueprint(report_bp)
     app.register_blueprint(inventory_bp)
     app.register_blueprint(fee_bp)
