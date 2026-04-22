@@ -5,3 +5,8 @@ __pycache__/
 *.pyc
 logs/
 *.log
+
+# Generated database backup artifacts
+backups/backup_*.sql
+backups/backup_*.sql.gz
+backups/backup_*.dump
