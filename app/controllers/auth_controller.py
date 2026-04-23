@@ -283,6 +283,7 @@ def update_user(user_id):
         full_name = data.get('full_name')
         email = data.get('email')
         role_name = data.get('role')
+        password = data.get('password', None)
 
         if username is not None:
             username = username.strip()
@@ -315,6 +316,24 @@ def update_user(user_id):
             if role_error:
                 return jsonify({"error": role_error}), 400
             user.role_id = role.id
+
+        # Password changes from the Edit User modal must be hashed server-side.
+        # Blank strings are ignored so the frontend can submit the form without
+        # changing the password unless the field is intentionally filled.
+        if password is not None:
+            password = str(password).strip()
+            if password:
+                is_valid, error = PasswordValidator.validate(password)
+                if not is_valid:
+                    return jsonify({
+                        "error": error,
+                        "requirements": PasswordValidator.get_requirements()
+                    }), 400
+
+                if user.check_password(password):
+                    return jsonify({"error": "New password must be different from current password"}), 400
+
+                user.set_password(password)
 
         if 'is_active' in data:
             is_active = bool(data.get('is_active'))

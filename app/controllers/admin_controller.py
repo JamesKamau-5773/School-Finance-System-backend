@@ -37,15 +37,65 @@ def reset_finances():
     inspector = inspect(db.engine)
     existing_tables = set(inspector.get_table_names())
 
-    # Truncate only the whitelisted financial tables if they exist in this schema.
+    protected_tables = [
+        table for table in ('students', 'users', 'inventory_items')
+        if table in existing_tables
+    ]
+
+    # Truncate only the whitelisted finance/store history tables if they exist.
+    # We intentionally do NOT truncate students, users, roles, or inventory_items.
     truncate_candidates = [
         'transactions',
+        'ledger_entries',
         'expenses',
         'student_ledgers',
         'fee_master',
         'fee_structures',
+        'stock_transactions',
+        'store_transactions',
     ]
     tables_to_truncate = [table for table in truncate_candidates if table in existing_tables]
+
+    # Defensive safeguard: if any protected table has an FK pointing to a table that
+    # is about to be truncated, PostgreSQL TRUNCATE ... CASCADE could wipe protected data.
+    # Abort the operation instead of risking data loss.
+    if (
+        db.engine.dialect.name == 'postgresql'
+        and protected_tables
+        and tables_to_truncate
+    ):
+        fk_risks = db.session.execute(
+            text(
+                """
+                SELECT
+                    dep.relname AS dependent_table,
+                    ref.relname AS referenced_table,
+                    c.conname AS constraint_name
+                FROM pg_constraint c
+                JOIN pg_class dep ON dep.oid = c.conrelid
+                JOIN pg_namespace dep_ns ON dep_ns.oid = dep.relnamespace
+                JOIN pg_class ref ON ref.oid = c.confrelid
+                JOIN pg_namespace ref_ns ON ref_ns.oid = ref.relnamespace
+                WHERE c.contype = 'f'
+                  AND dep_ns.nspname = 'public'
+                  AND ref_ns.nspname = 'public'
+                  AND dep.relname = ANY(:protected_tables)
+                  AND ref.relname = ANY(:truncate_tables)
+                """
+            ),
+            {
+                'protected_tables': protected_tables,
+                'truncate_tables': tables_to_truncate,
+            },
+        ).mappings().all()
+
+        if fk_risks:
+            return jsonify({
+                'status': 'error',
+                'code': 'PROTECTED_TABLE_RISK',
+                'message': 'Reset aborted: CASCADE dependency risk detected on protected tables.',
+                'risks': [dict(row) for row in fk_risks],
+            }), 409
 
     if 'students' not in existing_tables:
         return jsonify({
@@ -60,11 +110,19 @@ def reset_finances():
         if column in student_columns
     ]
 
-    if not tables_to_truncate and not zero_columns:
+    inventory_zero_columns = []
+    if 'inventory_items' in existing_tables:
+        inventory_columns = {column['name'] for column in inspector.get_columns('inventory_items')}
+        inventory_zero_columns = [
+            column for column in ('current_stock', 'avg_daily_consumption')
+            if column in inventory_columns
+        ]
+
+    if not tables_to_truncate and not zero_columns and not inventory_zero_columns:
         return jsonify({
             'status': 'error',
             'code': 'NOTHING_TO_RESET',
-            'message': 'No matching finance tables or balance columns were found.'
+            'message': 'No matching finance/store tables or balance columns were found.'
         }), 404
 
     try:
@@ -80,11 +138,20 @@ def reset_finances():
                     f'UPDATE students SET {zero_clause}'
                 ))
 
+            if inventory_zero_columns:
+                inventory_zero_clause = ', '.join(
+                    f'{column} = 0' for column in inventory_zero_columns
+                )
+                db.session.execute(text(
+                    f'UPDATE inventory_items SET {inventory_zero_clause}'
+                ))
+
         actor_id = get_jwt_identity()
         audit_log('UPDATE', 'SYSTEM_RESET_FINANCES', 'system', {
             'actor_id': actor_id,
             'truncated_tables': tables_to_truncate,
             'zeroed_columns': zero_columns,
+            'zeroed_inventory_columns': inventory_zero_columns,
         })
 
         current_app.logger.warning(
@@ -98,7 +165,9 @@ def reset_finances():
             'status': 'success',
             'message': 'Financial reset completed successfully.',
             'truncated_tables': tables_to_truncate,
+            'protected_tables': protected_tables,
             'zeroed_columns': zero_columns,
+            'zeroed_inventory_columns': inventory_zero_columns,
         }), 200
 
     except Exception as exc:
